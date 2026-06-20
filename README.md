@@ -1,1 +1,46 @@
-# vapor-swift-codecov-action
+# swift-codecov-action
+A GitHub Action which performs Codecov.io uploads with additional support for Swift projects
+
+`swift-codecov-action` calls the official [codecov](https://github.com/codecov/codecov-action) action underneath, so it requires what the official codecov action requires.   
+See [this](https://github.com/codecov/codecov-action?tab=readme-ov-file#usage) for more info. Currently it mentions:
+
+> [!CAUTION] 
+> In order for the Action to work seamlessly, you will need to have `bash`, `curl`, `git`, and `gpg` installed on your runner. You will also need to run [actions/checkout](https://github.com/actions/checkout) before calling the Codecov action. If these are not present, the Action will fail. Github Actions runners will have these installed by default. If you are using a custom runner or running in a container, you will need to ensure that these are installed.
+
+## Usage
+
+```yaml
+- uses: vapor/swift-codecov-action@v1
+  with:
+    codecov_token: ${{ secrets.CODECOV_TOKEN }}
+```
+
+## Parameters
+
+`swift-codecov-action` accepts the following inputs:
+
+| Name                 | Required | Default | Description |
+| -------------------- | -------- | ------- | ----------- |
+| `codecov_token`      | no*      | `""`   | Codecov token for the repository. Required for private repositories or when Codecov requires a token. |
+| `package_path`       | no       | `$GITHUB_WORKSPACE`   | The location of the repository. This will be used as the `working_directory` for the Codecov upload action. |
+| `build_parameters`   | no       | `""`   | Extra flags passed to `swift build` and `swift test` to disambiguate the configuration or target (e.g. `-c release`). Only flags that affect the output binary path are required. |
+| `base_sha`           | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `codecov_yml_path`   | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `disable_file_fixes` | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `disable_telem`      | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `dry_run`            | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `env_vars`           | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `fail_ci_if_error`   | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `flags`              | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `override_branch`    | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `override_build`     | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `override_build_url` | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `override_commit`    | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `override_pr`        | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `name`               | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `swift_project`      | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+| `verbose`            | no       | `""`   | Passed through to [codecov/codecov-action](https://github.com/codecov/codecov-action#arguments) |
+
+## Privacy
+
+This Action contacts Chainguard's licensing server to verify authorization. Connection metadata (IP address, GitHub repository identifier, timestamp, and any metadata encoded in the auth token) is transmitted to Chainguard, Inc. even if authorization is denied in accordance with our [Privacy Notice](https://www.chainguard.dev/legal/privacy-notice)

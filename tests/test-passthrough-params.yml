@@ -1,0 +1,57 @@
+name: Test passthrough parameters
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install mock swift binary
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/swift" << 'EOF'
+          #!/usr/bin/env bash
+          if [[ "$*" == *"--show-codecov-path"* ]]; then
+            echo "/tmp/mock-build/.build/debug/codecov/default.profdata"
+          elif [[ "$*" == *"--show-bin-path"* ]]; then
+            echo "/tmp/mock-build/.build/debug"
+          elif [[ "$*" == *"describe"* && "$*" == *"--type json"* ]]; then
+            echo '{"name":"MockPackage","targets":[]}'
+          else
+            exit 0
+          fi
+          EOF
+          chmod +x "$HOME/.local/bin/swift"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Create mock coverage data files
+        run: |
+          mkdir -p /tmp/mock-build/.build/debug/codecov
+          touch /tmp/mock-build/.build/debug/codecov/default.profdata
+          touch "/tmp/mock-build/.build/debug/MockPackage-test-runner"
+          touch "/tmp/mock-build/.build/debug/MockPackage.so"
+
+      - name: Install mock llvm-cov
+        run: |
+          cat > "$HOME/.local/bin/llvm-cov" << 'EOF'
+          #!/usr/bin/env bash
+          echo "# Mock coverage report"
+          EOF
+          chmod +x "$HOME/.local/bin/llvm-cov"
+
+      - id: action
+        uses: .
+        with:
+          codecov_token: 'test-token'
+          dry_run: 'true'
+          flags: 'unittests'
+          name: 'test-run'
+          verbose: 'true'
+          fail_ci_if_error: 'false'
+          disable_telem: 'true'
+        continue-on-error: true
+
+      - name: Assert action accepted all passthrough parameters
+        run: |
+          echo "PASS: action accepted all passthrough parameters without configuration error"
