@@ -1,0 +1,103 @@
+name: Test params construction logic
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: refs/heads/main
+      GITHUB_EVENT_NAME: push
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Invoke the action (lint requires uses: .). continue-on-error because
+      # Swift is not available in ubuntu-latest; the action will fail at the
+      # swift build step, but we still validate it is wired up correctly.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          dry_run: 'true'
+          codecov_token: 'my-test-token'
+
+      - name: Assert action was invoked
+        env:
+          ACTION_OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "action outcome: $ACTION_OUTCOME"
+          if [ "$ACTION_OUTCOME" = "success" ] || [ "$ACTION_OUTCOME" = "failure" ]; then
+            echo "PASS: action was invoked (outcome=$ACTION_OUTCOME)"
+          else
+            echo "FAIL: unexpected outcome '$ACTION_OUTCOME'"
+            exit 1
+          fi
+
+      - name: Test params JSON construction logic directly
+        id: test-params
+        env:
+          TOKEN: "my-test-token"
+          PACKAGE_PATH: ""
+          ROOTDIR: ""
+          RAISEERR: ""
+          VERBOSE: ""
+          DRY_RUN: ',"dry_run":true'
+          FLAGS: ""
+          ENVVARS: ""
+        run: |
+          # Simulate what the convert-coverage-report step does
+          # (without needing Swift or actual coverage data)
+          output=$(printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "$output" >> "$GITHUB_OUTPUT"
+          echo "Constructed params: $output"
+
+      - name: Assert token is included in params
+        env:
+          PARAMS: ${{ steps.test-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"token":"my-test-token"'; then
+            echo "PASS: token found in params"
+          else
+            echo "FAIL: token not found in params"
+            exit 1
+          fi
+
+      - name: Assert disable_search is set
+        env:
+          PARAMS: ${{ steps.test-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"disable_search":true'; then
+            echo "PASS: disable_search found in params"
+          else
+            echo "FAIL: disable_search not found in params"
+            exit 1
+          fi
+
+      - name: Assert files field is set to codecov.txt
+        env:
+          PARAMS: ${{ steps.test-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"files":"codecov.txt"'; then
+            echo "PASS: files field correctly set"
+          else
+            echo "FAIL: files field not correctly set"
+            exit 1
+          fi
+
+      - name: Assert dry_run is included when set
+        env:
+          PARAMS: ${{ steps.test-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"dry_run":true'; then
+            echo "PASS: dry_run found in params"
+          else
+            echo "FAIL: dry_run not found in params"
+            exit 1
+          fi

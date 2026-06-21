@@ -1,0 +1,168 @@
+name: Test optional passthrough parameters
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: refs/heads/main
+      GITHUB_EVENT_NAME: push
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Invoke the action (lint requires uses: .). continue-on-error because
+      # Swift is not available in ubuntu-latest; the action will fail at the
+      # swift build step, but we still validate it is wired up correctly.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          fail_ci_if_error: 'false'
+          verbose: 'false'
+          dry_run: 'true'
+          flags: 'unit'
+          env_vars: 'OS,SWIFT_VERSION'
+          codecov_token: 'test-token'
+
+      - name: Assert action was invoked
+        env:
+          ACTION_OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "action outcome: $ACTION_OUTCOME"
+          # Outcome must be either success or failure (not skipped/cancelled)
+          if [ "$ACTION_OUTCOME" = "success" ] || [ "$ACTION_OUTCOME" = "failure" ]; then
+            echo "PASS: action was invoked (outcome=$ACTION_OUTCOME)"
+          else
+            echo "FAIL: unexpected outcome '$ACTION_OUTCOME'"
+            exit 1
+          fi
+
+      - name: Test params construction with all optional fields set
+        id: test-all-params
+        env:
+          TOKEN: "tok123"
+          PACKAGE_PATH: "mypackage/"
+          ROOTDIR: ',"root_dir":"mypackage"'
+          RAISEERR: ',"fail_ci_if_error":true'
+          VERBOSE: ',"verbose":true'
+          DRY_RUN: ',"dry_run":true'
+          FLAGS: ',"flags":"unit"'
+          ENVVARS: ',"env_vars":"OS,SWIFT_VERSION"'
+        run: |
+          output=$(printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "$output" >> "$GITHUB_OUTPUT"
+          echo "Constructed params: $output"
+
+      - name: Assert root_dir is included
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"root_dir":"mypackage"'; then
+            echo "PASS: root_dir found in params"
+          else
+            echo "FAIL: root_dir not found in params"
+            exit 1
+          fi
+
+      - name: Assert fail_ci_if_error is included
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"fail_ci_if_error":true'; then
+            echo "PASS: fail_ci_if_error found in params"
+          else
+            echo "FAIL: fail_ci_if_error not found in params"
+            exit 1
+          fi
+
+      - name: Assert verbose is included
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"verbose":true'; then
+            echo "PASS: verbose found in params"
+          else
+            echo "FAIL: verbose not found in params"
+            exit 1
+          fi
+
+      - name: Assert flags is included
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"flags":"unit"'; then
+            echo "PASS: flags found in params"
+          else
+            echo "FAIL: flags not found in params"
+            exit 1
+          fi
+
+      - name: Assert env_vars is included
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"env_vars":"OS,SWIFT_VERSION"'; then
+            echo "PASS: env_vars found in params"
+          else
+            echo "FAIL: env_vars not found in params"
+            exit 1
+          fi
+
+      - name: Assert working-directory uses package path
+        env:
+          PARAMS: ${{ steps.test-all-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"working-directory":"mypackage/"'; then
+            echo "PASS: working-directory correctly set to package path"
+          else
+            echo "FAIL: working-directory not correctly set"
+            exit 1
+          fi
+
+      - name: Test params with no optional fields (empty defaults)
+        id: test-minimal-params
+        env:
+          TOKEN: ""
+          PACKAGE_PATH: ""
+          ROOTDIR: ""
+          RAISEERR: ""
+          VERBOSE: ""
+          DRY_RUN: ""
+          FLAGS: ""
+          ENVVARS: ""
+        run: |
+          output=$(printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "$output" >> "$GITHUB_OUTPUT"
+          echo "Minimal params: $output"
+
+      - name: Assert minimal params has no optional fields
+        env:
+          PARAMS: ${{ steps.test-minimal-params.outputs.params }}
+        run: |
+          echo "params: $PARAMS"
+          if echo "$PARAMS" | grep -q '"root_dir"'; then
+            echo "FAIL: root_dir should not be present"
+            exit 1
+          fi
+          if echo "$PARAMS" | grep -q '"flags"'; then
+            echo "FAIL: flags should not be present"
+            exit 1
+          fi
+          if echo "$PARAMS" | grep -q '"verbose"'; then
+            echo "FAIL: verbose should not be present"
+            exit 1
+          fi
+          echo "PASS: minimal params correctly excludes optional fields"

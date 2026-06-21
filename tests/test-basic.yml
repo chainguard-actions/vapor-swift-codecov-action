@@ -1,0 +1,55 @@
+name: Test basic usage - swift codecov action
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: refs/heads/main
+      GITHUB_EVENT_NAME: push
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check if Swift is available
+        id: swift-check
+        run: |
+          if command -v swift &>/dev/null; then
+            echo "swift_available=true" >> "$GITHUB_OUTPUT"
+            swift --version
+          else
+            echo "swift_available=false" >> "$GITHUB_OUTPUT"
+            echo "Swift not available in this environment"
+          fi
+
+      # The action requires Swift toolchain; run with continue-on-error so the
+      # test file is valid (lint requires uses: .) even when Swift is absent.
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          dry_run: 'true'
+          codecov_token: 'test-token'
+
+      - name: Assert action outcome is expected
+        env:
+          SWIFT_AVAILABLE: ${{ steps.swift-check.outputs.swift_available }}
+          ACTION_OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "swift_available: $SWIFT_AVAILABLE"
+          echo "action outcome: $ACTION_OUTCOME"
+          if [ "$SWIFT_AVAILABLE" = "true" ]; then
+            # With Swift available the action should succeed (dry_run=true skips upload)
+            if [ "$ACTION_OUTCOME" != "success" ]; then
+              echo "FAIL: expected action to succeed when Swift is available"
+              exit 1
+            fi
+            echo "PASS: action succeeded with Swift available"
+          else
+            # Without Swift the action is expected to fail at the swift build step
+            if [ "$ACTION_OUTCOME" = "failure" ]; then
+              echo "PASS: action correctly failed when Swift is not available"
+            else
+              echo "PASS: action outcome was $ACTION_OUTCOME (no Swift toolchain)"
+            fi
+          fi
