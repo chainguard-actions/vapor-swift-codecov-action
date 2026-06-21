@@ -1,0 +1,61 @@
+name: Test basic usage
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Invoke the action under test (requires Swift; expected to fail without it)
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          build_parameters: ''
+          codecov_token: ''
+
+      # Verify the action.yml is present and the action is accessible
+      - name: Verify action exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/action.yml" ]; then
+            echo "FAIL: action.yml not found at workspace root"
+            exit 1
+          fi
+          echo "PASS: action.yml found"
+
+      # Verify the action has the expected inputs defined
+      - name: Verify action inputs
+        run: |
+          if ! grep -q 'package_path' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: package_path input not found in action.yml"
+            exit 1
+          fi
+          if ! grep -q 'codecov_token' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: codecov_token input not found in action.yml"
+            exit 1
+          fi
+          if ! grep -q 'dry_run' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: dry_run input not found in action.yml"
+            exit 1
+          fi
+          echo "PASS: all expected inputs found in action.yml"
+
+      # Verify the action uses composite runs
+      - name: Verify action is composite
+        run: |
+          if ! grep -q 'using: composite' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: action is not composite"
+            exit 1
+          fi
+          echo "PASS: action is composite"
+
+      # Verify the action references codecov upload action
+      - name: Verify codecov upload step
+        run: |
+          if ! grep -q 'codecov/codecov-action' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: codecov/codecov-action not referenced"
+            exit 1
+          fi
+          echo "PASS: codecov/codecov-action referenced"

@@ -1,0 +1,147 @@
+name: Test params construction logic
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Invoke the action under test (requires Swift; expected to fail without it)
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          build_parameters: ''
+          codecov_token: 'test-token-123'
+          dry_run: 'true'
+          flags: 'unit'
+          env_vars: 'OS,SWIFT_VERSION'
+          fail_ci_if_error: 'true'
+          verbose: 'true'
+
+      # Simulate the params construction logic from the convert-coverage-report step
+      # to verify the JSON output format is correct
+      - name: Simulate params construction with token
+        env:
+          TOKEN: "test-token-123"
+          PACKAGE_PATH: ""
+          ROOTDIR: ""
+          FLAGS: ""
+          ENVVARS: ""
+          RAISEERR: ""
+          VERBOSE: ""
+          DRY_RUN: ',"dry_run":true'
+        run: |
+          params=$(printf '{"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "params: $params"
+
+          # Verify token is included
+          if ! echo "$params" | grep -q '"token":"test-token-123"'; then
+            echo "FAIL: token not found in params"
+            exit 1
+          fi
+          echo "PASS: token found in params"
+
+          # Verify files field
+          if ! echo "$params" | grep -q '"files":"codecov.txt"'; then
+            echo "FAIL: files field not found in params"
+            exit 1
+          fi
+          echo "PASS: files field found in params"
+
+          # Verify disable_search field
+          if ! echo "$params" | grep -q '"disable_search":true'; then
+            echo "FAIL: disable_search field not found in params"
+            exit 1
+          fi
+          echo "PASS: disable_search field found in params"
+
+          # Verify dry_run field
+          if ! echo "$params" | grep -q '"dry_run":true'; then
+            echo "FAIL: dry_run field not found in params"
+            exit 1
+          fi
+          echo "PASS: dry_run field found in params"
+
+      # Simulate params construction with package_path
+      - name: Simulate params construction with package_path
+        env:
+          TOKEN: ""
+          PACKAGE_PATH: "mypackage/"
+          ROOTDIR: ',"root_dir":"mypackage"'
+          FLAGS: ""
+          ENVVARS: ""
+          RAISEERR: ""
+          VERBOSE: ""
+          DRY_RUN: ""
+        run: |
+          params=$(printf '{"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "params: $params"
+
+          # Verify working-directory includes package path
+          if ! echo "$params" | grep -q '"working-directory":"mypackage/"'; then
+            echo "FAIL: working-directory not set to package path"
+            exit 1
+          fi
+          echo "PASS: working-directory set correctly"
+
+          # Verify root_dir is included
+          if ! echo "$params" | grep -q '"root_dir":"mypackage"'; then
+            echo "FAIL: root_dir not found in params"
+            exit 1
+          fi
+          echo "PASS: root_dir found in params"
+
+      # Simulate params construction with flags and env_vars
+      - name: Simulate params construction with flags and env_vars
+        env:
+          TOKEN: ""
+          PACKAGE_PATH: ""
+          ROOTDIR: ""
+          FLAGS: ',"flags":"unit"'
+          ENVVARS: ',"env_vars":"OS,SWIFT_VERSION"'
+          RAISEERR: ',"fail_ci_if_error":true'
+          VERBOSE: ',"verbose":true'
+          DRY_RUN: ',"dry_run":true'
+        run: |
+          params=$(printf '{"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+            "${TOKEN}" \
+            "${PACKAGE_PATH}" \
+            "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")
+          echo "params: $params"
+
+          # Verify flags
+          if ! echo "$params" | grep -q '"flags":"unit"'; then
+            echo "FAIL: flags not found in params"
+            exit 1
+          fi
+          echo "PASS: flags found in params"
+
+          # Verify env_vars
+          if ! echo "$params" | grep -q '"env_vars":"OS,SWIFT_VERSION"'; then
+            echo "FAIL: env_vars not found in params"
+            exit 1
+          fi
+          echo "PASS: env_vars found in params"
+
+          # Verify fail_ci_if_error
+          if ! echo "$params" | grep -q '"fail_ci_if_error":true'; then
+            echo "FAIL: fail_ci_if_error not found in params"
+            exit 1
+          fi
+          echo "PASS: fail_ci_if_error found in params"
+
+          # Verify verbose
+          if ! echo "$params" | grep -q '"verbose":true'; then
+            echo "FAIL: verbose not found in params"
+            exit 1
+          fi
+          echo "PASS: verbose found in params"

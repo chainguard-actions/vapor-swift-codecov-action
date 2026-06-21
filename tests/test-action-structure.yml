@@ -1,0 +1,102 @@
+name: Test action structure and metadata
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Invoke the action under test (requires Swift; expected to fail without it)
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: ''
+          build_parameters: ''
+          codecov_token: ''
+          dry_run: 'true'
+
+      # Verify the action has all required passthrough inputs for codecov-action
+      - name: Verify passthrough inputs exist
+        run: |
+          INPUTS="fail_ci_if_error verbose dry_run flags env_vars"
+          for input in $INPUTS; do
+            if ! grep -q "${input}:" "$GITHUB_WORKSPACE/action.yml"; then
+              echo "FAIL: input '${input}' not found in action.yml"
+              exit 1
+            fi
+            echo "PASS: input '${input}' found"
+          done
+
+      # Verify the action has the three expected steps
+      - name: Verify action steps
+        run: |
+          if ! grep -q 'determine-package-info' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: determine-package-info step not found"
+            exit 1
+          fi
+          echo "PASS: determine-package-info step found"
+
+          if ! grep -q 'convert-coverage-report' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: convert-coverage-report step not found"
+            exit 1
+          fi
+          echo "PASS: convert-coverage-report step found"
+
+          if ! grep -q 'upload-coverage-report' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: upload-coverage-report step not found"
+            exit 1
+          fi
+          echo "PASS: upload-coverage-report step found"
+
+      # Verify the action uses llvm-cov for coverage conversion
+      - name: Verify llvm-cov usage
+        run: |
+          if ! grep -q 'llvm-cov' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: llvm-cov not referenced in action.yml"
+            exit 1
+          fi
+          echo "PASS: llvm-cov referenced in action.yml"
+
+      # Verify the action sets COVERAGE_OBJECT and COVERAGE_DATA env vars
+      - name: Verify coverage env vars are set
+        run: |
+          if ! grep -q 'COVERAGE_OBJECT' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: COVERAGE_OBJECT not found in action.yml"
+            exit 1
+          fi
+          echo "PASS: COVERAGE_OBJECT found"
+
+          if ! grep -q 'COVERAGE_DATA' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: COVERAGE_DATA not found in action.yml"
+            exit 1
+          fi
+          echo "PASS: COVERAGE_DATA found"
+
+      # Verify the action handles Swift 5.8 workaround
+      - name: Verify Swift 5.8 workaround
+        run: |
+          if ! grep -q '5\.8' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: Swift 5.8 workaround not found in action.yml"
+            exit 1
+          fi
+          echo "PASS: Swift 5.8 workaround found"
+
+      # Verify the action uses GITHUB_ENV for environment variable passing
+      - name: Verify GITHUB_ENV usage
+        run: |
+          if ! grep -q 'GITHUB_ENV' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: GITHUB_ENV not referenced in action.yml"
+            exit 1
+          fi
+          echo "PASS: GITHUB_ENV referenced in action.yml"
+
+      # Verify the action uses GITHUB_OUTPUT for step outputs
+      - name: Verify GITHUB_OUTPUT usage
+        run: |
+          if ! grep -q 'GITHUB_OUTPUT' "$GITHUB_WORKSPACE/action.yml"; then
+            echo "FAIL: GITHUB_OUTPUT not referenced in action.yml"
+            exit 1
+          fi
+          echo "PASS: GITHUB_OUTPUT referenced in action.yml"
