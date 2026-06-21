@@ -8,6 +8,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
+| v0.3.3 | [`v0.3.3`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.3) | [`a7ac794`](https://github.com/vapor/swift-codecov-action/commit/a7ac79416ebeb41ce3ffdf7eca00212c4376f881) |
 | v0.3.5 | [`v0.3.5`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.5) | [`2f478f2`](https://github.com/vapor/swift-codecov-action/commit/2f478f2fd22e06ca363967d0fb6c6593a8548cee) |
 
 ## Privacy
