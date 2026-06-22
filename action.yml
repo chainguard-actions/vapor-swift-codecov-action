@@ -1,0 +1,166 @@
+name: Swift Codecov Upload Action
+description: A GitHub Action which performs Codecov.io uploads with additional support for Swift projects.
+branding:
+  icon: feather
+  color: orange
+inputs:
+  package_path:
+    description: The location of the repository. Defaults to $GITHUB_WORKSPACE. This will be used as the working_directory for the Codecov upload action.
+    required: false
+    # N.B.: Can not simply default to github.workspace here, as it will not be correctly updated when the action is called from
+    # within a job which runs in a container.
+    default: ''
+  build_parameters:
+    description: Additional parameters needed by swift build and swift test to disambiguate the correct target and configuration, i.e. -c release. Only flags which affect the output binary path are required.
+    required: false
+    default: ''
+  codecov_token:
+    description: The Codecov token for the repository.
+    required: false
+    default: ''
+  # The following are passthrough parameters for the Codecov upload action.
+  base_sha: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  codecov_yml_path: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  disable_file_fixes: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  disable_telem: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  dry_run: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  env_vars: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  fail_ci_if_error: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  flags: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  override_branch: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  override_build: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  override_build_url: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  override_commit: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  override_pr: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  name: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  swift_project: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+  verbose: {description: 'See https://github.com/codecov/codecov-action#arguments', required: false, default: ''}
+runs:
+  using: composite
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - id: determine-package-info
+      shell: bash
+      env:
+        PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
+        BUILD_PARAMETERS: ${{ format('{0}', inputs.build_parameters) }}
+      run: |
+        # Build argument arrays to avoid unquoted word splitting / injection
+        pkg_args=()
+        [ -n "${PACKAGE_PATH}" ] && pkg_args+=("${PACKAGE_PATH}")
+        build_args=()
+        if [ -n "${BUILD_PARAMETERS}" ]; then
+          # Split on whitespace safely — these are flag-style arguments supplied by the action caller
+          read -ra build_args <<< "${BUILD_PARAMETERS}"
+        fi
+
+        covpath="$(dirname "$(swift test "${pkg_args[@]}" "${build_args[@]}" --show-codecov-path)")/default.profdata"
+
+        # When the swiftbuild build system is used, the coverage objects are distinct shared libraries. When the legacy
+        # build system is used, the .xctest binary is the coverage object. When building on macOS with the legacy build
+        # system, the .xctest path will be a bundle with an executable.
+
+        binpath="$(swift build "${pkg_args[@]}" "${build_args[@]}" --show-bin-path)"
+        pkgname="$(swift package "${pkg_args[@]}" describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",((<>)))->{name});')"
+        if [[ -d "${binpath}/${pkgname}PackageTests.xctest" ]]; then
+          covobjs="--object=${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
+        elif [[ -x "${binpath}/${pkgname}PackageTests.xctest" ]]; then
+          covobjs="--object=${binpath}/${pkgname}PackageTests.xctest"
+        else
+          covobjs_arr=()
+          for obj in "${binpath}/"*"-test-runner"; do
+            covobjs_arr+=("--object=${obj/-test-runner/.so}")
+          done
+          # Join array elements with newline as separator for GITHUB_ENV storage
+          covobjs="$(printf '%s\n' "${covobjs_arr[@]}")"
+        fi
+
+        safe_covobjs="$(printf '%s' "${covobjs}" | tr -d '\r')"
+        safe_covpath="$(printf '%s' "${covpath}" | tr -d '\n\r')"
+        printf 'COVERAGE_OBJECTS=%s\n' "${safe_covobjs}" >> "${GITHUB_ENV}"
+        printf 'COVERAGE_DATA=%s\n' "${safe_covpath}" >> "${GITHUB_ENV}"
+    - id: convert-coverage-report
+      env:
+        PACKAGE_PATH: ${{ inputs.package_path       != '' && format('{0}/',                        inputs.package_path)       || '' }}
+        TOKEN: ${{ inputs.codecov_token }}
+        ROOTDIR: ${{ inputs.package_path       != '' && format(',\"root_dir\":\"{0}\"',           inputs.package_path)       || '' }}
+        BASE_SHA: ${{ inputs.base_sha           != '' && format(',\"base_sha\":\"{0}\"',           inputs.base_sha)           || '' }}
+        CODECV_YML_PTH: ${{ inputs.codecov_yml_path   != '' && format(',\"codecov_yml_path\":\"{0}\"',   inputs.codecov_yml_path)   || '' }}
+        DIS_FILE_FIXES: ${{ inputs.disable_file_fixes != '' && format(',\"disable_file_fixes\":\"{0}\"', inputs.disable_file_fixes) || '' }}
+        DISABLE_TELEM: ${{ inputs.disable_telem      != '' && format(',\"disable_telem\":\"{0}\"',      inputs.disable_telem)      || '' }}
+        DRY_RUN: ${{ inputs.dry_run            != '' && format(',\"dry_run\":\"{0}\"',            inputs.dry_run)            || '' }}
+        ENV_VARS: ${{ inputs.env_vars           != '' && format(',\"env_vars\":\"{0}\"',           inputs.env_vars)           || '' }}
+        FAIL_CI_IF_ERR: ${{ inputs.fail_ci_if_error   != '' && format(',\"fail_ci_if_error\":\"{0}\"',   inputs.fail_ci_if_error)   || '' }}
+        FLAGS: ${{ inputs.flags              != '' && format(',\"flags\":\"{0}\"',              inputs.flags)              || '' }}
+        OVERRIDE_BRNCH: ${{ inputs.override_branch    != '' && format(',\"override_branch\":\"{0}\"',    inputs.override_branch)    || '' }}
+        OVERRIDE_BUILD: ${{ inputs.override_build     != '' && format(',\"override_build\":\"{0}\"',     inputs.override_build)     || '' }}
+        OVERRIDE_B_URL: ${{ inputs.override_build_url != '' && format(',\"override_build_url\":\"{0}\"', inputs.override_build_url) || '' }}
+        OVERRIDE_COMIT: ${{ inputs.override_commit    != '' && format(',\"override_commit\":\"{0}\"',    inputs.override_commit)    || '' }}
+        OVERRIDE_PR: ${{ inputs.override_pr        != '' && format(',\"override_pr\":\"{0}\"',        inputs.override_pr)        || '' }}
+        NAME: ${{ inputs.name               != '' && format(',\"name\":\"{0}\"',               inputs.name)               || '' }}
+        SWIFT_PROJECT: ${{ inputs.swift_project      != '' && format(',\"swift_project\":\"{0}\"',      inputs.swift_project)      || '' }}
+        VERBOSE: ${{ inputs.verbose            != '' && format(',\"verbose\":\"{0}\"',            inputs.verbose)            || '' }}
+      shell: bash
+      run: |
+        # Reconstruct the coverage object arguments from the newline-separated list stored in GITHUB_ENV.
+        # This avoids eval and unquoted expansion of user-controlled data.
+        cov_obj_args=()
+        while IFS= read -r line; do
+          [ -n "${line}" ] && cov_obj_args+=("${line}")
+        done <<< "${COVERAGE_OBJECTS}"
+
+        $(which xcrun || true) llvm-cov show \
+            --format=text \
+            --ignore-filename-regex='/\.build/.*' \
+            --instr-profile="${COVERAGE_DATA}" \
+            "${cov_obj_args[@]}" \
+            >"${PACKAGE_PATH}codecov.txt"
+
+        # Sanitize all env-var-derived values before writing to GITHUB_OUTPUT
+        safe_token="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
+        safe_pkg_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
+        safe_rootdir="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
+        safe_base_sha="$(printf '%s' "${BASE_SHA}" | tr -d '\n\r')"
+        safe_codecv_yml_pth="$(printf '%s' "${CODECV_YML_PTH}" | tr -d '\n\r')"
+        safe_dis_file_fixes="$(printf '%s' "${DIS_FILE_FIXES}" | tr -d '\n\r')"
+        safe_disable_telem="$(printf '%s' "${DISABLE_TELEM}" | tr -d '\n\r')"
+        safe_dry_run="$(printf '%s' "${DRY_RUN}" | tr -d '\n\r')"
+        safe_env_vars="$(printf '%s' "${ENV_VARS}" | tr -d '\n\r')"
+        safe_fail_ci_if_err="$(printf '%s' "${FAIL_CI_IF_ERR}" | tr -d '\n\r')"
+        safe_flags="$(printf '%s' "${FLAGS}" | tr -d '\n\r')"
+        safe_override_brnch="$(printf '%s' "${OVERRIDE_BRNCH}" | tr -d '\n\r')"
+        safe_override_build="$(printf '%s' "${OVERRIDE_BUILD}" | tr -d '\n\r')"
+        safe_override_b_url="$(printf '%s' "${OVERRIDE_B_URL}" | tr -d '\n\r')"
+        safe_override_comit="$(printf '%s' "${OVERRIDE_COMIT}" | tr -d '\n\r')"
+        safe_override_pr="$(printf '%s' "${OVERRIDE_PR}" | tr -d '\n\r')"
+        safe_name="$(printf '%s' "${NAME}" | tr -d '\n\r')"
+        safe_swift_project="$(printf '%s' "${SWIFT_PROJECT}" | tr -d '\n\r')"
+        safe_verbose="$(printf '%s' "${VERBOSE}" | tr -d '\n\r')"
+
+        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s}' \
+          "${safe_token}" \
+          "${safe_pkg_path}" \
+          "${safe_rootdir}" \
+          "${safe_base_sha}${safe_codecv_yml_pth}${safe_dis_file_fixes}${safe_disable_telem}${safe_dry_run}${safe_env_vars}${safe_fail_ci_if_err}" \
+          "${safe_flags}${safe_override_brnch}${safe_override_build}${safe_override_b_url}${safe_override_comit}${safe_override_pr}" \
+          "${safe_name}${safe_swift_project}${safe_verbose}" \
+          >>"${GITHUB_OUTPUT}"
+    - id: upload-coverage-report
+      uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+      with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
