@@ -50,46 +50,48 @@ runs:
         PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
         BUILD_PARAMETERS: ${{ format('{0}', inputs.build_parameters) }}
       run: |
-        binpath="$(swift build ${PACKAGE_PATH:+"$PACKAGE_PATH"} ${BUILD_PARAMETERS:+"$BUILD_PARAMETERS"} --show-bin-path)"
-        pkgname="$(swift package ${PACKAGE_PATH:+"$PACKAGE_PATH"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<>)))->{name});')"
-        excname="${pkgname}PackageTests.xctest"; [[ -d "${binpath}/${excname}" ]] && excname+="/Contents/macOS/${excname%*.xctest}"
-        covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"$PACKAGE_PATH"} ${BUILD_PARAMETERS:+"$BUILD_PARAMETERS"} --show-codecov-path)")"
+        # Tokenize BUILD_PARAMETERS (a whitespace-separated list of flags) into an array,
+        # honoring quotes and backslashes the same way the shell would.
+        build_params=()
+        if [ -n "$BUILD_PARAMETERS" ]; then
+          while IFS= read -r -d '' t; do build_params+=("$t"); done \
+            < <(printf '%s' "$BUILD_PARAMETERS" | xargs printf '%s\0')
+        fi
 
-        echo "COVERAGE_OBJECT=${binpath}/${excname}" >>"${GITHUB_ENV}"
-        echo "COVERAGE_DATA=${covpath}/default.profdata" >>"${GITHUB_ENV}"
+        binpath="$(swift build ${PACKAGE_PATH:+"$PACKAGE_PATH"} "${build_params[@]}" --show-bin-path)"
+        pkgname="$(swift package ${PACKAGE_PATH:+"$PACKAGE_PATH"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<<>)))->{name});')"
+        excname="${pkgname}PackageTests.xctest"; [[ -d "${binpath}/${excname}" ]] && excname+="/Contents/macOS/${excname%*.xctest}"
+        covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"$PACKAGE_PATH"} "${build_params[@]}" --show-codecov-path)")"
+
+        safe_coverage_object="$(printf '%s' "${binpath}/${excname}" | tr -d '\n\r')"
+        safe_coverage_data="$(printf '%s' "${covpath}/default.profdata" | tr -d '\n\r')"
+        echo "COVERAGE_OBJECT=${safe_coverage_object}" >>"${GITHUB_ENV}"
+        echo "COVERAGE_DATA=${safe_coverage_data}" >>"${GITHUB_ENV}"
     - id: convert-coverage-report
       env:
         PACKAGE_PATH: ${{ inputs.package_path     != '' && format('{0}/',                    inputs.package_path)     || '' }}
         TOKEN: ${{ inputs.codecov_token }}
-        ROOTDIR: ${{ inputs.package_path     != '' && format(',"root_dir":"{0}"',       inputs.package_path)     || '' }}
-        RAISEERR: ${{ inputs.fail_ci_if_error != '' && format(',"fail_ci_if_error":{0}', inputs.fail_ci_if_error) || '' }}
-        VERBOSE: ${{ inputs.verbose          != '' && format(',"verbose":{0}',          inputs.verbose)          || '' }}
-        DRY_RUN: ${{ inputs.dry_run          != '' && format(',"dry_run":{0}',          inputs.dry_run)          || '' }}
-        FLAGS: ${{ inputs.flags            != '' && format(',"flags":"{0}"',          inputs.flags)            || '' }}
-        ENVVARS: ${{ inputs.env_vars         != '' && format(',"env_vars":"{0}"',       inputs.env_vars)         || '' }}
+        ROOTDIR: ${{ inputs.package_path     != '' && format(',\"root_dir\":\"{0}\"',       inputs.package_path)     || '' }}
+        RAISEERR: ${{ inputs.fail_ci_if_error != '' && format(',\"fail_ci_if_error\":{0}', inputs.fail_ci_if_error) || '' }}
+        VERBOSE: ${{ inputs.verbose          != '' && format(',\"verbose\":{0}',          inputs.verbose)          || '' }}
+        DRY_RUN: ${{ inputs.dry_run          != '' && format(',\"dry_run\":{0}',          inputs.dry_run)          || '' }}
+        FLAGS: ${{ inputs.flags            != '' && format(',\"flags\":\"{0}\"',          inputs.flags)            || '' }}
+        ENVVARS: ${{ inputs.env_vars         != '' && format(',\"env_vars\":\"{0}\"',       inputs.env_vars)         || '' }}
       shell: bash
       run: |
-        safe_TOKEN="$(printf '%s' "$TOKEN" | tr -d '\n\r')"
-        safe_PACKAGE_PATH="$(printf '%s' "$PACKAGE_PATH" | tr -d '\n\r')"
-        safe_ROOTDIR="$(printf '%s' "$ROOTDIR" | tr -d '\n\r')"
-        safe_FLAGS="$(printf '%s' "$FLAGS" | tr -d '\n\r')"
-        safe_ENVVARS="$(printf '%s' "$ENVVARS" | tr -d '\n\r')"
-        safe_RAISEERR="$(printf '%s' "$RAISEERR" | tr -d '\n\r')"
-        safe_VERBOSE="$(printf '%s' "$VERBOSE" | tr -d '\n\r')"
-        safe_DRY_RUN="$(printf '%s' "$DRY_RUN" | tr -d '\n\r')"
-
         $(which xcrun || true) llvm-cov show \
             --format=text \
             --ignore-filename-regex='/\.build/.*' \
             --instr-profile="${COVERAGE_DATA}" \
             "${COVERAGE_OBJECT}" \
-            >"${safe_PACKAGE_PATH}codecov.txt"
+            >"${PACKAGE_PATH}codecov.txt"
 
-        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
-          "${safe_TOKEN}" \
-          "${safe_PACKAGE_PATH}" \
-          "${safe_ROOTDIR}" "${safe_FLAGS}" "${safe_ENVVARS}" "${safe_RAISEERR}" "${safe_VERBOSE}" "${safe_DRY_RUN}" \
-          >>"${GITHUB_OUTPUT}"
+        raw_params="$(printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+          "${TOKEN}" \
+          "${PACKAGE_PATH}" \
+          "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}")"
+        safe_params="$(printf '%s' "${raw_params}" | tr -d '\n\r')"
+        printf '%s\n' "${safe_params}" >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
       uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
