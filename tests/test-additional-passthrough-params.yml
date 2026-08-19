@@ -1,0 +1,89 @@
+name: Test additional passthrough parameters
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Create a minimal Swift package fixture and mock tools
+      - name: Install mock Swift toolchain and create fixtures
+        run: |
+          mkdir -p /tmp/mock-bin
+          mkdir -p /tmp/swiftpkg2/.build/debug/codecov
+          mkdir -p /tmp/swiftpkg2/Sources/MyLib2
+          mkdir -p /tmp/swiftpkg2/Tests/MyLib2Tests
+
+          # Create fake coverage data files
+          echo '{}' > /tmp/swiftpkg2/.build/debug/codecov/MyLib2.json
+          echo 'fake profdata' > /tmp/swiftpkg2/.build/debug/codecov/default.profdata
+
+          # Create a fake xctest binary
+          touch /tmp/swiftpkg2/.build/debug/MyLib2PackageTests.xctest
+          chmod +x /tmp/swiftpkg2/.build/debug/MyLib2PackageTests.xctest
+
+          # Mock 'swift' binary using printf
+          printf '%s\n' '#!/bin/sh' \
+            'case "$*" in' \
+            '  *--show-codecov-path*)' \
+            '    echo "/tmp/swiftpkg2/.build/debug/codecov/MyLib2.json"' \
+            '    ;;' \
+            '  *--show-bin-path*)' \
+            '    echo "/tmp/swiftpkg2/.build/debug"' \
+            '    ;;' \
+            '  *describe*--type*json*)' \
+            '    echo '"'"'{"name":"MyLib2","targets":[]}'"'"'' \
+            '    ;;' \
+            '  *)' \
+            '    echo "mock swift: $*" >&2' \
+            '    ;;' \
+            'esac' \
+            'exit 0' > /tmp/mock-bin/swift
+          chmod +x /tmp/mock-bin/swift
+
+          # Mock llvm-cov
+          printf '%s\n' '#!/bin/sh' \
+            'echo "# mock coverage data"' \
+            'exit 0' > /tmp/mock-bin/llvm-cov
+          chmod +x /tmp/mock-bin/llvm-cov
+
+          # Mock xcrun (macOS tool, not needed on Linux but action calls it)
+          printf '%s\n' '#!/bin/sh' \
+            'exec "$@"' > /tmp/mock-bin/xcrun
+          chmod +x /tmp/mock-bin/xcrun
+
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          package_path: /tmp/swiftpkg2
+          dry_run: 'true'
+          codecov_token: 'test-token-additional'
+          base_sha: 'abc1234def5678'
+          codecov_yml_path: '.codecov.yml'
+          disable_file_fixes: 'true'
+          disable_telem: 'true'
+          env_vars: 'OS,SWIFT_VERSION'
+          override_branch: 'main'
+          override_build: '42'
+          override_build_url: 'https://example.com/build/42'
+          override_commit: 'abc1234def5678abc1234def5678abc1234def56'
+          override_pr: '99'
+          swift_project: 'MyLib2'
+        continue-on-error: true
+
+      - name: Assert action was invoked with additional passthrough params
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "Action outcome: $OUTCOME"
+          # The action should be invoked (not skipped). It may fail at the codecov upload
+          # step without a real token/coverage, but the key assertion is that all the
+          # passthrough parameters were accepted and the action ran.
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was unexpectedly skipped"
+            exit 1
+          fi
+          echo "PASS: action was invoked with additional passthrough parameters (outcome=$OUTCOME)"

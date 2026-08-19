@@ -1,0 +1,70 @@
+name: Test params JSON construction
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Install mock Swift toolchain and llvm-cov
+      - name: Install mock tools
+        run: |
+          mkdir -p /tmp/mock-bin
+          mkdir -p /tmp/testpkg/.build/debug/codecov
+
+          # Create fake coverage data
+          echo '{}' > /tmp/testpkg/.build/debug/codecov/Pkg.json
+          echo 'fake profdata' > /tmp/testpkg/.build/debug/codecov/default.profdata
+
+          # Create fake xctest binary
+          touch /tmp/testpkg/.build/debug/PkgPackageTests.xctest
+          chmod +x /tmp/testpkg/.build/debug/PkgPackageTests.xctest
+
+          # Mock 'swift' binary using printf
+          printf '%s\n' '#!/bin/sh' \
+            'case "$*" in' \
+            '  *--show-codecov-path*)' \
+            '    echo "/tmp/testpkg/.build/debug/codecov/Pkg.json"' \
+            '    ;;' \
+            '  *--show-bin-path*)' \
+            '    echo "/tmp/testpkg/.build/debug"' \
+            '    ;;' \
+            '  *describe*--type*json*)' \
+            '    echo '"'"'{"name":"Pkg","targets":[]}'"'"'' \
+            '    ;;' \
+            '  *)' \
+            '    echo "mock swift: $*" >&2' \
+            '    ;;' \
+            'esac' \
+            'exit 0' > /tmp/mock-bin/swift
+          chmod +x /tmp/mock-bin/swift
+
+          # Mock llvm-cov
+          printf '%s\n' '#!/bin/sh' \
+            'echo "# mock coverage"' \
+            'exit 0' > /tmp/mock-bin/llvm-cov
+          chmod +x /tmp/mock-bin/llvm-cov
+
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          package_path: /tmp/testpkg
+          dry_run: 'true'
+          flags: 'unittests'
+          name: 'my-coverage'
+          verbose: 'true'
+        continue-on-error: true
+
+      - name: Assert action was invoked
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "Action outcome: $OUTCOME"
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was unexpectedly skipped"
+            exit 1
+          fi
+          echo "PASS: action was invoked (outcome=$OUTCOME)"

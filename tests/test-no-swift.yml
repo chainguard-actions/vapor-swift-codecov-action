@@ -1,0 +1,48 @@
+name: Test action fails gracefully without Swift
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify Swift is not available
+        run: |
+          if command -v swift >/dev/null 2>&1; then
+            echo "Swift is available at $(which swift) — this test expects no Swift"
+            echo "Skipping graceful-failure test"
+            echo "SWIFT_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "Swift not available — proceeding with graceful-failure test"
+            echo "SWIFT_AVAILABLE=false" >> "$GITHUB_ENV"
+          fi
+
+      - id: action
+        uses: .
+        with:
+          package_path: /tmp/nonexistent-package
+          dry_run: 'true'
+        continue-on-error: true
+
+      - name: Assert action failed (no Swift available)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+          SWIFT_AVAILABLE: ${{ env.SWIFT_AVAILABLE }}
+        run: |
+          echo "Swift available: $SWIFT_AVAILABLE"
+          echo "Action outcome: $OUTCOME"
+          if [ "$SWIFT_AVAILABLE" = "true" ]; then
+            echo "SKIP: Swift is available, graceful-failure test not applicable"
+            exit 0
+          fi
+          # Without Swift, the action must fail (not succeed or be skipped)
+          if [ "$OUTCOME" = "success" ]; then
+            echo "FAIL: action unexpectedly succeeded without Swift toolchain"
+            exit 1
+          fi
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was unexpectedly skipped"
+            exit 1
+          fi
+          echo "PASS: action correctly failed when Swift is not available (outcome=$OUTCOME)"
