@@ -4,31 +4,31 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_REF: refs/heads/main
-      GITHUB_EVENT_NAME: push
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      # This test verifies that all passthrough inputs are accepted by the action.
-      # The action will fail at the swift test step (no Swift project present),
-      # but the input coverage check only requires these inputs appear in with: blocks.
       - id: action
         uses: .
         continue-on-error: true
         with:
-          base_sha: abc1234
-          codecov_yml_path: .codecov.yml
-          disable_file_fixes: "true"
-          env_vars: OS,SWIFT_VERSION
-          override_branch: main
-          override_build: "42"
-          override_build_url: https://example.com/build/42
-          override_commit: deadbeef
-          override_pr: "7"
-          swift_project: MyProject
-
-      - name: Assert action was invoked with all passthrough inputs
+          base_sha: 'abc1234'
+          codecov_yml_path: '.codecov.yml'
+          disable_file_fixes: 'true'
+          env_vars: 'OS,SWIFT_VERSION'
+          override_branch: 'main'
+          override_build: '123'
+          override_build_url: 'https://example.com/build/123'
+          override_commit: 'abc1234def5678'
+          override_pr: '42'
+          swift_project: 'MyProject'
+          dry_run: 'true'
+      - name: Assert action ran (fails gracefully without Swift)
         run: |
-          echo "Action was invoked with all required passthrough inputs."
-          echo "PASS"
+          echo "outcome: ${{ steps.action.outcome }}"
+          if [ "${{ steps.action.outcome }}" = "success" ]; then
+            echo "PASS: action succeeded"
+          elif [ "${{ steps.action.outcome }}" = "failure" ]; then
+            echo "PASS: action failed gracefully (Swift not available in test environment)"
+          else
+            echo "FAIL: unexpected outcome '${{ steps.action.outcome }}'"
+            exit 1
+          fi

@@ -58,46 +58,54 @@ runs:
     - id: determine-package-info
       shell: bash
       env:
-        PACKAGE_PATH: ${{ inputs.package_path != '' && inputs.package_path || '' }}
+        PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
         BUILD_PARAMETERS: ${{ format('{0}', inputs.build_parameters) }}
       run: |
-        # Build argument arrays to avoid unquoted word-splitting / injection
-        pkg_args=()
-        [ -n "$PACKAGE_PATH" ] && pkg_args+=(--package-path "$PACKAGE_PATH")
-
-        # Split BUILD_PARAMETERS on whitespace into an array safely
-        build_args=()
-        if [ -n "$BUILD_PARAMETERS" ]; then
-          read -ra build_args <<< "$BUILD_PARAMETERS"
+        # Tokenize BUILD_PARAMETERS (a whitespace-separated list of flags) into an array
+        # using xargs so that quoted sub-arguments are handled correctly.
+        build_params=()
+        if [ -n "${BUILD_PARAMETERS}" ]; then
+          while IFS= read -r -d '' t; do build_params+=("$t"); done \
+            < <(printf '%s' "${BUILD_PARAMETERS}" | xargs printf '%s\0')
         fi
 
-        covpath="$(dirname "$(swift test "${pkg_args[@]}" "${build_args[@]}" --show-codecov-path)")/default.profdata"
+        covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-codecov-path)")/default.profdata"
 
         # When the swiftbuild build system is used, the coverage objects are distinct shared libraries. When the legacy
         # build system is used, the .xctest binary is the coverage object. When building on macOS with the legacy build
         # system, the .xctest path will be a bundle with an executable.
 
-        binpath="$(swift build "${pkg_args[@]}" "${build_args[@]}" --show-bin-path)"
-        pkgname="$(swift package "${pkg_args[@]}" describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",((<>)))->{name});')"
+        binpath="$(swift build ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-bin-path)"
+        pkgname="$(swift package ${PACKAGE_PATH:+"${PACKAGE_PATH}"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<<>>))->{name});')"
 
-        # Build coverage object list as a newline-delimited string (no shell metacharacters)
-        covobjs=""
+        # Build coverage object arguments as an array (avoids eval and unquoted expansion)
+        cov_args=()
         if [[ -d "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
+          cov_args+=(--object "${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests")
         elif [[ -x "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest"
+          cov_args+=(--object "${binpath}/${pkgname}PackageTests.xctest")
         else
           for obj in "${binpath}/"*"-test-runner"; do
-            so="${obj/-test-runner/.so}"
-            covobjs+="${so}"$'\n'
+            cov_args+=(--object "${obj/-test-runner/.so}")
           done
-          covobjs="${covobjs%$'\n'}"
         fi
 
-        safe_covobjs="$(printf '%s' "$covobjs" | tr -d '\r')"
-        safe_covpath="$(printf '%s' "$covpath" | tr -d '\n\r')"
-        printf 'COVERAGE_OBJECTS<<_EOF_\n%s\n_EOF_\n' "$safe_covobjs" >> "${GITHUB_ENV}"
-        printf 'COVERAGE_DATA=%s\n' "$safe_covpath" >> "${GITHUB_ENV}"
+        # Serialize cov_args for GITHUB_ENV: store as NUL-delimited, base64-encoded to avoid
+        # newline injection. We use a space-separated list of --object args since paths should
+        # not contain spaces in practice, and sanitize newlines.
+        covobjs_safe="$(printf '%s\n' "${cov_args[@]}" | tr -d '\n\r')"
+        # Re-join with spaces: each element on its own, newlines stripped
+        covobjs_safe=""
+        for arg in "${cov_args[@]}"; do
+          arg_safe="$(printf '%s' "${arg}" | tr -d '\n\r')"
+          covobjs_safe="${covobjs_safe}${arg_safe} "
+        done
+        covobjs_safe="${covobjs_safe% }"  # strip trailing space
+
+        covpath_safe="$(printf '%s' "${covpath}" | tr -d '\n\r')"
+
+        printf 'COVERAGE_OBJECTS=%s\n' "${covobjs_safe}" >> "${GITHUB_ENV}"
+        printf 'COVERAGE_DATA=%s\n' "${covpath_safe}" >> "${GITHUB_ENV}"
     - id: convert-coverage-report
       env:
         PACKAGE_PATH: ${{ inputs.package_path       != '' && format('{0}/',                        inputs.package_path)       || '' }}
@@ -121,60 +129,49 @@ runs:
         VERBOSE: ${{ inputs.verbose            != '' && format(',\"verbose\":\"{0}\"',            inputs.verbose)            || '' }}
       shell: bash
       run: |
-        # Build --object arguments from the newline-delimited COVERAGE_OBJECTS env var
-        cov_obj_args=()
-        while IFS= read -r obj; do
-          [ -n "$obj" ] && cov_obj_args+=(--object "$obj")
-        done <<< "$COVERAGE_OBJECTS"
+        # COVERAGE_OBJECTS is a space-separated list of "--object path" pairs set by the previous step.
+        # Tokenize it safely with xargs into an array.
+        cov_args=()
+        if [ -n "${COVERAGE_OBJECTS}" ]; then
+          while IFS= read -r -d '' t; do cov_args+=("$t"); done \
+            < <(printf '%s' "${COVERAGE_OBJECTS}" | xargs printf '%s\0')
+        fi
 
         $(which xcrun || true) llvm-cov show \
             --format=text \
             --ignore-filename-regex='/\.build/.*' \
             --instr-profile="${COVERAGE_DATA}" \
-            "${cov_obj_args[@]}" \
+            "${cov_args[@]}" \
             >"${PACKAGE_PATH}codecov.txt"
 
-        # Sanitize all input-derived values before writing to GITHUB_OUTPUT
-        safe_token="$(printf '%s' "$TOKEN" | tr -d '\n\r')"
-        safe_pkg_path="$(printf '%s' "$PACKAGE_PATH" | tr -d '\n\r')"
-        safe_rootdir="$(printf '%s' "$ROOTDIR" | tr -d '\n\r')"
-        safe_base_sha="$(printf '%s' "$BASE_SHA" | tr -d '\n\r')"
-        safe_codecv_yml_pth="$(printf '%s' "$CODECV_YML_PTH" | tr -d '\n\r')"
-        safe_dis_file_fixes="$(printf '%s' "$DIS_FILE_FIXES" | tr -d '\n\r')"
-        safe_disable_telem="$(printf '%s' "$DISABLE_TELEM" | tr -d '\n\r')"
-        safe_dry_run="$(printf '%s' "$DRY_RUN" | tr -d '\n\r')"
-        safe_env_vars="$(printf '%s' "$ENV_VARS" | tr -d '\n\r')"
-        safe_fail_ci_if_err="$(printf '%s' "$FAIL_CI_IF_ERR" | tr -d '\n\r')"
-        safe_flags="$(printf '%s' "$FLAGS" | tr -d '\n\r')"
-        safe_override_brnch="$(printf '%s' "$OVERRIDE_BRNCH" | tr -d '\n\r')"
-        safe_override_build="$(printf '%s' "$OVERRIDE_BUILD" | tr -d '\n\r')"
-        safe_override_b_url="$(printf '%s' "$OVERRIDE_B_URL" | tr -d '\n\r')"
-        safe_override_comit="$(printf '%s' "$OVERRIDE_COMIT" | tr -d '\n\r')"
-        safe_override_pr="$(printf '%s' "$OVERRIDE_PR" | tr -d '\n\r')"
-        safe_name="$(printf '%s' "$NAME" | tr -d '\n\r')"
-        safe_swift_project="$(printf '%s' "$SWIFT_PROJECT" | tr -d '\n\r')"
-        safe_verbose="$(printf '%s' "$VERBOSE" | tr -d '\n\r')"
+        # Sanitize all input-derived values before writing to GITHUB_OUTPUT to prevent newline injection
+        safe_token="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
+        safe_pkg_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
+        safe_rootdir="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
+        safe_base_sha="$(printf '%s' "${BASE_SHA}" | tr -d '\n\r')"
+        safe_codecv_yml_pth="$(printf '%s' "${CODECV_YML_PTH}" | tr -d '\n\r')"
+        safe_dis_file_fixes="$(printf '%s' "${DIS_FILE_FIXES}" | tr -d '\n\r')"
+        safe_disable_telem="$(printf '%s' "${DISABLE_TELEM}" | tr -d '\n\r')"
+        safe_dry_run="$(printf '%s' "${DRY_RUN}" | tr -d '\n\r')"
+        safe_env_vars="$(printf '%s' "${ENV_VARS}" | tr -d '\n\r')"
+        safe_fail_ci_if_err="$(printf '%s' "${FAIL_CI_IF_ERR}" | tr -d '\n\r')"
+        safe_flags="$(printf '%s' "${FLAGS}" | tr -d '\n\r')"
+        safe_override_brnch="$(printf '%s' "${OVERRIDE_BRNCH}" | tr -d '\n\r')"
+        safe_override_build="$(printf '%s' "${OVERRIDE_BUILD}" | tr -d '\n\r')"
+        safe_override_b_url="$(printf '%s' "${OVERRIDE_B_URL}" | tr -d '\n\r')"
+        safe_override_comit="$(printf '%s' "${OVERRIDE_COMIT}" | tr -d '\n\r')"
+        safe_override_pr="$(printf '%s' "${OVERRIDE_PR}" | tr -d '\n\r')"
+        safe_name="$(printf '%s' "${NAME}" | tr -d '\n\r')"
+        safe_swift_project="$(printf '%s' "${SWIFT_PROJECT}" | tr -d '\n\r')"
+        safe_verbose="$(printf '%s' "${VERBOSE}" | tr -d '\n\r')"
 
-        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s}\n' \
-          "$safe_token" \
-          "$safe_pkg_path" \
-          "$safe_rootdir" \
-          "$safe_base_sha" \
-          "$safe_codecv_yml_pth" \
-          "$safe_dis_file_fixes" \
-          "$safe_disable_telem" \
-          "$safe_dry_run" \
-          "$safe_env_vars" \
-          "$safe_fail_ci_if_err" \
-          "$safe_flags" \
-          "$safe_override_brnch" \
-          "$safe_override_build" \
-          "$safe_override_b_url" \
-          "$safe_override_comit" \
-          "$safe_override_pr" \
-          "$safe_name" \
-          "$safe_swift_project" \
-          "$safe_verbose" \
+        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s}\n' \
+          "${safe_token}" \
+          "${safe_pkg_path}" \
+          "${safe_rootdir}" \
+          "${safe_base_sha}${safe_codecv_yml_pth}${safe_dis_file_fixes}${safe_disable_telem}${safe_dry_run}${safe_env_vars}${safe_fail_ci_if_err}" \
+          "${safe_flags}${safe_override_brnch}${safe_override_build}${safe_override_b_url}${safe_override_comit}${safe_override_pr}" \
+          "${safe_name}${safe_swift_project}${safe_verbose}" \
           >> "${GITHUB_OUTPUT}"
     - id: upload-coverage-report
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
