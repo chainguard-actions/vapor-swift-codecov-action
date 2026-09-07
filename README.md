@@ -13,6 +13,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | v0.3.3 | [`v0.3.3`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.3) | [`a7ac794`](https://github.com/vapor/swift-codecov-action/commit/a7ac79416ebeb41ce3ffdf7eca00212c4376f881) |
 | v0.3.4 | [`v0.3.4`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.4) | [`d5ea9e9`](https://github.com/vapor/swift-codecov-action/commit/d5ea9e9f9fbf6cd7694e19240400288b034e3a08) |
 | v0.3.5 | [`v0.3.5`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.5) | [`2f478f2`](https://github.com/vapor/swift-codecov-action/commit/2f478f2fd22e06ca363967d0fb6c6593a8548cee) |
+| v0.3.6 | [`v0.3.6`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.6) | [`855faf6`](https://github.com/vapor/swift-codecov-action/commit/855faf6b50974544c7ab3da724f49e602e43edc6) |
 
 ## Privacy
 
