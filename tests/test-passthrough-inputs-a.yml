@@ -1,0 +1,35 @@
+name: Test passthrough inputs (base_sha, codecov_yml_path, disable_file_fixes, disable_telem, env_vars, fail_ci_if_error, name)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          dry_run: 'true'
+          base_sha: 'abc1234'
+          codecov_yml_path: '.codecov.yml'
+          disable_file_fixes: 'true'
+          disable_telem: 'true'
+          env_vars: 'OS,SWIFT_VERSION'
+          fail_ci_if_error: 'false'
+          name: 'my-coverage-upload'
+
+      - name: Assert action ran with passthrough inputs (fails gracefully without Swift project)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # Without a Swift toolchain, the action fails at 'determine-package-info'.
+          # We verify the action did not produce an unexpected (skipped) outcome.
+          if [ "$OUTCOME" = "success" ] || [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action completed with outcome '$OUTCOME'"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

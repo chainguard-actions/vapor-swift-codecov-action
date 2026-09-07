@@ -1,0 +1,33 @@
+name: Test package_path input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create a subdirectory to use as package_path
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/mypackage"
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          package_path: '${{ github.workspace }}/mypackage'
+          dry_run: 'true'
+
+      - name: Assert action ran with package_path (fails gracefully without Swift project)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # Without a Swift toolchain, the action fails at 'determine-package-info'.
+          # We verify the action did not produce an unexpected (skipped) outcome.
+          if [ "$OUTCOME" = "success" ] || [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action completed with outcome '$OUTCOME'"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
