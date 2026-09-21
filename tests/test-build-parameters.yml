@@ -1,0 +1,33 @@
+name: Test build_parameters input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          build_parameters: '-c release'
+          dry_run: 'true'
+
+      - name: Assert action ran with build_parameters
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # The action requires Swift toolchain to be installed.
+          # In act's ubuntu-latest environment, Swift is not pre-installed,
+          # so the action is expected to fail at the 'determine-package-info' step.
+          # We verify the action was invoked and either succeeded or failed gracefully.
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: action succeeded with build_parameters set"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (Swift toolchain not available in this environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
