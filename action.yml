@@ -50,22 +50,26 @@ runs:
         PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
         BUILD_PARAMETERS: ${{ inputs.build_parameters }}
       run: |
-        # Tokenize BUILD_PARAMETERS (a whitespace-separated list of flags) into an array
-        build_params=()
-        if [ -n "${BUILD_PARAMETERS}" ]; then
-          while IFS= read -r -d '' t; do build_params+=("$t"); done \
-            < <(printf '%s' "${BUILD_PARAMETERS}" | xargs printf '%s\0')
+        pkg_path_args=()
+        if [ -n "$PACKAGE_PATH" ]; then
+          while IFS= read -r -d '' t; do pkg_path_args+=("$t"); done \
+            < <(printf '%s' "$PACKAGE_PATH" | xargs printf '%s\0')
+        fi
+        build_param_args=()
+        if [ -n "$BUILD_PARAMETERS" ]; then
+          while IFS= read -r -d '' t; do build_param_args+=("$t"); done \
+            < <(printf '%s' "$BUILD_PARAMETERS" | xargs printf '%s\0')
         fi
 
-        binpath="$(swift build ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-bin-path)"
-        pkgname="$(swift package ${PACKAGE_PATH:+"${PACKAGE_PATH}"} describe --type json | perl -e 'use JSON::PP; print (decode_json(join("",(<<>>)))->{name});')"
+        binpath="$(swift build "${pkg_path_args[@]}" "${build_param_args[@]}" --show-bin-path)"
+        pkgname="$(swift package "${pkg_path_args[@]}" describe --type json | perl -e 'use JSON::PP; print (decode_json(join("",(<>)))->{name});')"
         excname="${pkgname}PackageTests.xctest"; [[ -d "${binpath}/${excname}" ]] && excname+="/Contents/macOS/${excname%*.xctest}"
 
         # https://github.com/apple/swift-package-manager/issues/5853 - broken by 5.8, fixed in 5.9
         if [[ "$(swift package --version)" =~ 5\.8\.[0-9]+$ ]]; then
             covpath="${binpath}/codecov"
         else
-            covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-codecov-path)")"
+            covpath="$(dirname "$(swift test "${pkg_path_args[@]}" "${build_param_args[@]}" --show-codecov-path)")"
         fi
 
         safe_coverage_object="$(printf '%s' "${binpath}/${excname}" | tr -d '\n\r')"
@@ -91,20 +95,12 @@ runs:
             "${COVERAGE_OBJECT}" \
             >"${PACKAGE_PATH}codecov.txt"
 
-        safe_token="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
-        safe_package_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
-        safe_rootdir="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
-        safe_flags="$(printf '%s' "${FLAGS}" | tr -d '\n\r')"
-        safe_envvars="$(printf '%s' "${ENVVARS}" | tr -d '\n\r')"
-        safe_raiseerr="$(printf '%s' "${RAISEERR}" | tr -d '\n\r')"
-        safe_verbose="$(printf '%s' "${VERBOSE}" | tr -d '\n\r')"
-        safe_dry_run="$(printf '%s' "${DRY_RUN}" | tr -d '\n\r')"
-
-        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
-          "${safe_token}" \
-          "${safe_package_path}" \
-          "${safe_rootdir}" "${safe_flags}" "${safe_envvars}" "${safe_raiseerr}" "${safe_verbose}" "${safe_dry_run}" \
-          >>"${GITHUB_OUTPUT}"
+        safe_params="$(printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s%s%s}' \
+          "${TOKEN}" \
+          "${PACKAGE_PATH}" \
+          "${ROOTDIR}" "${FLAGS}" "${ENVVARS}" "${RAISEERR}" "${VERBOSE}" "${DRY_RUN}" \
+          | tr -d '\n\r')"
+        printf '%s' "${safe_params}" >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+      uses: chainguard-actions/codecov-codecov-action@d4dd81fc06e1c421f705a32faa24194a1e49aa5a # v5
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
