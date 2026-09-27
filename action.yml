@@ -61,37 +61,36 @@ runs:
         PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
         BUILD_PARAMETERS: ${{ format('{0}', inputs.build_parameters) }}
       run: |
-        # Split BUILD_PARAMETERS into an array safely (word-split on whitespace, no glob)
-        read -ra build_params_arr <<< "${BUILD_PARAMETERS}"
+        # Tokenize BUILD_PARAMETERS (a whitespace-separated list of flags) into an array
+        build_params=()
+        if [ -n "${BUILD_PARAMETERS}" ]; then
+          while IFS= read -r -d '' t; do build_params+=("$t"); done \
+            < <(printf '%s' "${BUILD_PARAMETERS}" | xargs printf '%s\0')
+        fi
 
-        # Split PACKAGE_PATH into an array (it's either empty or a single --package-path=... flag)
-        read -ra package_path_arr <<< "${PACKAGE_PATH}"
-
-        covpath="$(dirname "$(swift test "${package_path_arr[@]}" "${build_params_arr[@]}" --show-codecov-path)")/default.profdata"
+        covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-codecov-path)")/default.profdata"
 
         # When the swiftbuild build system is used, the coverage objects are distinct shared libraries. When the legacy
         # build system is used, the .xctest binary is the coverage object. When building on macOS with the legacy build
         # system, the .xctest path will be a bundle with an executable.
 
-        binpath="$(swift build "${package_path_arr[@]}" "${build_params_arr[@]}" --show-bin-path)"
-        pkgname="$(swift package "${package_path_arr[@]}" describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",((<>)))->{name});')"
+        binpath="$(swift build ${PACKAGE_PATH:+"${PACKAGE_PATH}"} "${build_params[@]}" --show-bin-path)"
+        pkgname="$(swift package ${PACKAGE_PATH:+"${PACKAGE_PATH}"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<<>)))->{name});')"
         if [[ -d "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
+          covobjs="--object='${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests'"
         elif [[ -x "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest"
+          covobjs="--object='${binpath}/${pkgname}PackageTests.xctest'"
         else
-          covobjs=""
           for obj in "${binpath}/"*"-test-runner"; do
-            covobjs+="${obj/-test-runner/.so}"$'\n'
+            covobjs+="--object='${obj/-test-runner/.so}' "
           done
-          covobjs="${covobjs%$'\n'}"
+          covobjs="${covobjs/% /}"
         fi
 
-        safe_covobjs="$(printf '%s' "${covobjs}" | tr -d '\r')"
+        safe_covobjs="$(printf '%s' "${covobjs}" | tr -d '\n\r')"
         safe_covpath="$(printf '%s' "${covpath}" | tr -d '\n\r')"
-
-        printf 'COVERAGE_OBJECTS=%s\n' "${safe_covobjs}" >>"${GITHUB_ENV}"
-        printf 'COVERAGE_DATA=%s\n' "${safe_covpath}" >>"${GITHUB_ENV}"
+        echo "COVERAGE_OBJECTS=${safe_covobjs}" >>"${GITHUB_ENV}"
+        echo "COVERAGE_DATA=${safe_covpath}" >>"${GITHUB_ENV}"
     - id: convert-coverage-report
       env:
         PACKAGE_PATH: ${{ inputs.package_path       != '' && format('{0}/',                        inputs.package_path)       || '' }}
@@ -115,22 +114,23 @@ runs:
         VERBOSE: ${{ inputs.verbose            != '' && format(',\"verbose\":\"{0}\"',            inputs.verbose)            || '' }}
       shell: bash
       run: |
-        # Build the --object arguments array from the newline-separated COVERAGE_OBJECTS
-        cov_args=()
-        while IFS= read -r obj; do
-          [[ -n "${obj}" ]] && cov_args+=(--object="${obj}")
-        done <<< "${COVERAGE_OBJECTS}"
+        # Tokenize COVERAGE_OBJECTS (a whitespace-separated list of --object=... flags) into an array
+        cov_obj_args=()
+        if [ -n "${COVERAGE_OBJECTS}" ]; then
+          while IFS= read -r -d '' t; do cov_obj_args+=("$t"); done \
+            < <(printf '%s' "${COVERAGE_OBJECTS}" | xargs printf '%s\0')
+        fi
 
         $(which xcrun || true) llvm-cov show \
             --format=text \
             --ignore-filename-regex='/\.build/.*' \
             --instr-profile="${COVERAGE_DATA}" \
-            "${cov_args[@]}" \
+            "${cov_obj_args[@]}" \
             >"${PACKAGE_PATH}codecov.txt"
 
         # Sanitize all input-derived values before writing to GITHUB_OUTPUT
         safe_token="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
-        safe_pkg_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
+        safe_package_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
         safe_rootdir="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
         safe_base_sha="$(printf '%s' "${BASE_SHA}" | tr -d '\n\r')"
         safe_codecv_yml_pth="$(printf '%s' "${CODECV_YML_PTH}" | tr -d '\n\r')"
@@ -151,12 +151,12 @@ runs:
 
         printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s}' \
           "${safe_token}" \
-          "${safe_pkg_path}" \
+          "${safe_package_path}" \
           "${safe_rootdir}" \
           "${safe_base_sha}${safe_codecv_yml_pth}${safe_dis_file_fixes}${safe_disable_telem}${safe_dry_run}${safe_env_vars}${safe_fail_ci_if_err}" \
           "${safe_flags}${safe_override_brnch}${safe_override_build}${safe_override_b_url}${safe_override_comit}${safe_override_pr}" \
           "${safe_name}${safe_swift_project}${safe_verbose}" \
           >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+      uses: chainguard-actions/codecov-codecov-action@8ad5d75bb63ac4905b522f7136c0b3ee5db84eb7 # v6.0.0
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
