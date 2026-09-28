@@ -61,47 +61,29 @@ runs:
         PACKAGE_PATH: ${{ inputs.package_path != '' && format('--package-path={0}', inputs.package_path) || '' }}
         BUILD_PARAMETERS: ${{ format('{0}', inputs.build_parameters) }}
       run: |
-        # Tokenize BUILD_PARAMETERS (a whitespace-separated list of flags) into an array
-        # using xargs for quote-aware splitting, so shell metacharacters are not evaluated.
-        build_params=()
-        if [ -n "$BUILD_PARAMETERS" ]; then
-          while IFS= read -r -d '' t; do build_params+=("$t"); done \
-            < <(printf '%s' "$BUILD_PARAMETERS" | xargs printf '%s\0')
-        fi
-
-        covpath="$(dirname "$(swift test ${PACKAGE_PATH:+"$PACKAGE_PATH"} "${build_params[@]}" --show-codecov-path)")/default.profdata"
+        covpath="$(dirname "$(swift test "${PACKAGE_PATH}" "${BUILD_PARAMETERS}" --show-codecov-path)")/default.profdata"
 
         # When the swiftbuild build system is used, the coverage objects are distinct shared libraries. When the legacy
         # build system is used, the .xctest binary is the coverage object. When building on macOS with the legacy build
         # system, the .xctest path will be a bundle with an executable.
 
-        binpath="$(swift build ${PACKAGE_PATH:+"$PACKAGE_PATH"} "${build_params[@]}" --show-bin-path)"
-        pkgname="$(swift package ${PACKAGE_PATH:+"$PACKAGE_PATH"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",((<>)))->{name});')"
-
-        # Build coverage objects as a newline-delimited list of paths (no shell quoting needed).
-        # The next step will read these paths and construct --object flags safely.
-        covobjs=""
+        binpath="$(swift build "${PACKAGE_PATH}" "${BUILD_PARAMETERS}" --show-bin-path)"
+        pkgname="$(swift package "${PACKAGE_PATH}" describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<<>>))->{name});')"
         if [[ -d "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
+          covobjs="--object='${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests'"
         elif [[ -x "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest"
+          covobjs="--object='${binpath}/${pkgname}PackageTests.xctest'"
         else
           for obj in "${binpath}/"*"-test-runner"; do
-            covobjs+="${obj/-test-runner/.so}"$'\n'
+            covobjs+="--object='${obj/-test-runner/.so}' "
           done
-          covobjs="${covobjs%$'\n'}"
+          covobjs="${covobjs/% /}"
         fi
 
-        # Sanitize covobjs and covpath before writing to GITHUB_ENV to prevent newline injection.
-        # covobjs may be multi-line (one path per line); sanitize each line individually.
+        safe_covobjs="$(printf '%s' "${covobjs}" | tr -d '\n\r')"
         safe_covpath="$(printf '%s' "${covpath}" | tr -d '\n\r')"
-        # Write COVERAGE_OBJECTS as a multiline GITHUB_ENV value using the heredoc delimiter syntax.
-        {
-          printf 'COVERAGE_OBJECTS<<__COVOBJS_EOF__\n'
-          printf '%s\n' "${covobjs}"
-          printf '__COVOBJS_EOF__\n'
-        } >> "${GITHUB_ENV}"
-        echo "COVERAGE_DATA=${safe_covpath}" >> "${GITHUB_ENV}"
+        echo "COVERAGE_OBJECTS=${safe_covobjs}" >>"${GITHUB_ENV}"
+        echo "COVERAGE_DATA=${safe_covpath}" >>"${GITHUB_ENV}"
     - id: convert-coverage-report
       env:
         PACKAGE_PATH: ${{ inputs.package_path       != '' && format('{0}/',                        inputs.package_path)       || '' }}
@@ -125,22 +107,21 @@ runs:
         VERBOSE: ${{ inputs.verbose            != '' && format(',\"verbose\":\"{0}\"',            inputs.verbose)            || '' }}
       shell: bash
       run: |
-        # Build --object flags from the newline-delimited COVERAGE_OBJECTS env var.
-        # Each line is a path; no eval needed.
-        obj_flags=()
-        while IFS= read -r obj_path; do
-          [ -n "$obj_path" ] && obj_flags+=(--object="$obj_path")
-        done <<< "$COVERAGE_OBJECTS"
+        # Safely tokenize COVERAGE_OBJECTS (a space-separated list of --object='...' flags)
+        # into an array without using eval.
+        cov_args=()
+        if [ -n "${COVERAGE_OBJECTS}" ]; then
+          while IFS= read -r -d '' t; do cov_args+=("$t"); done \
+            < <(printf '%s' "${COVERAGE_OBJECTS}" | xargs printf '%s\0')
+        fi
 
         $(which xcrun || true) llvm-cov show \
             --format=text \
             --ignore-filename-regex='/\.build/.*' \
             --instr-profile="${COVERAGE_DATA}" \
-            "${obj_flags[@]}" \
+            "${cov_args[@]}" \
             >"${PACKAGE_PATH}codecov.txt"
 
-        # Sanitize all input-derived variables before writing to GITHUB_OUTPUT
-        # to prevent newline injection attacks.
         safe_TOKEN="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
         safe_PACKAGE_PATH="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
         safe_ROOTDIR="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
