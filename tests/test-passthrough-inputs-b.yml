@@ -1,4 +1,4 @@
-name: Test passthrough inputs (override_branch, override_build, override_build_url, override_commit, override_pr, swift_project)
+name: Test passthrough inputs (env_vars, name, override_branch, override_build, override_build_url, override_commit, override_pr, swift_project)
 on:
   workflow_dispatch:
 jobs:
@@ -12,12 +12,14 @@ jobs:
         continue-on-error: true
         with:
           dry_run: 'true'
+          env_vars: 'OS,SWIFT_VERSION'
+          name: 'my-coverage-upload'
           override_branch: 'main'
           override_build: '42'
           override_build_url: 'https://example.com/build/42'
           override_commit: 'abc1234def5678'
           override_pr: '99'
-          swift_project: 'MyProject'
+          swift_project: 'MySwiftProject'
 
       - name: Assert action ran with override passthrough inputs (fails gracefully without Swift project)
         env:

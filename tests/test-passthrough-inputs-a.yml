@@ -1,4 +1,4 @@
-name: Test passthrough inputs (base_sha, codecov_yml_path, disable_file_fixes, disable_telem, env_vars, fail_ci_if_error, name)
+name: Test passthrough inputs (base_sha, codecov_yml_path, disable_file_fixes, disable_telem, fail_ci_if_error)
 on:
   workflow_dispatch:
 jobs:
@@ -16,9 +16,7 @@ jobs:
           codecov_yml_path: '.codecov.yml'
           disable_file_fixes: 'true'
           disable_telem: 'true'
-          env_vars: 'OS,SWIFT_VERSION'
           fail_ci_if_error: 'false'
-          name: 'my-coverage-upload'
 
       - name: Assert action ran with passthrough inputs (fails gracefully without Swift project)
         env:
