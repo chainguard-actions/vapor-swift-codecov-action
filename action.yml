@@ -77,24 +77,24 @@ runs:
 
         binpath="$(swift build ${PACKAGE_PATH:+"$PACKAGE_PATH"} "${build_params[@]}" --show-bin-path)"
         pkgname="$(swift package ${PACKAGE_PATH:+"$PACKAGE_PATH"} describe --type json | fgrep -v 'Found unhandled resource at' | perl -e 'use JSON::PP; print (decode_json(join("",(<>)))->{name});')"
-        # Store coverage object paths newline-separated (no single-quoting) so they can be
-        # safely read back into an array in the next step without eval.
-        covobjs=""
+        # Build coverage object paths as a newline-delimited list (no embedded quotes or eval needed)
+        covobjs_list=""
         if [[ -d "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
+          covobjs_list="${binpath}/${pkgname}PackageTests.xctest/Contents/macOS/${pkgname}PackageTests"
         elif [[ -x "${binpath}/${pkgname}PackageTests.xctest" ]]; then
-          covobjs="${binpath}/${pkgname}PackageTests.xctest"
+          covobjs_list="${binpath}/${pkgname}PackageTests.xctest"
         else
           for obj in "${binpath}/"*"-test-runner"; do
-            covobjs+="${obj/-test-runner/.so}"$'\n'
+            covobjs_list+="${obj/-test-runner/.so}"$'\n'
           done
-          covobjs="${covobjs%$'\n'}"
+          covobjs_list="${covobjs_list%$'\n'}"
         fi
 
-        safe_covobjs="$(printf '%s' "${covobjs}" | tr -d '\r')"
+        safe_covobjs="$(printf '%s' "${covobjs_list}" | tr -d '\r')"
         safe_covpath="$(printf '%s' "${covpath}" | tr -d '\n\r')"
+
         printf 'COVERAGE_OBJECTS<<__EOF__\n%s\n__EOF__\n' "${safe_covobjs}" >>"${GITHUB_ENV}"
-        echo "COVERAGE_DATA=${safe_covpath}" >>"${GITHUB_ENV}"
+        printf 'COVERAGE_DATA=%s\n' "${safe_covpath}" >>"${GITHUB_ENV}"
     - id: convert-coverage-report
       env:
         PACKAGE_PATH: ${{ inputs.package_path       != '' && format('{0}/',                        inputs.package_path)       || '' }}
@@ -118,10 +118,11 @@ runs:
         VERBOSE: ${{ inputs.verbose            != '' && format(',\"verbose\":\"{0}\"',            inputs.verbose)            || '' }}
       shell: bash
       run: |
-        # Read COVERAGE_OBJECTS (newline-separated paths) into an array safely, without eval.
+        # Build the --object arguments array from the newline-delimited COVERAGE_OBJECTS env var.
+        # This avoids eval and keeps each path as a separate, properly quoted argument.
         cov_obj_args=()
-        while IFS= read -r line; do
-          [ -n "$line" ] && cov_obj_args+=(--object="$line")
+        while IFS= read -r obj_path; do
+          [ -n "$obj_path" ] && cov_obj_args+=(--object "$obj_path")
         done <<< "$COVERAGE_OBJECTS"
 
         $(which xcrun || true) llvm-cov show \
@@ -131,16 +132,35 @@ runs:
             "${cov_obj_args[@]}" \
             >"${PACKAGE_PATH}codecov.txt"
 
-        # Sanitize all input-derived values before writing to GITHUB_OUTPUT.
-        safe() { printf '%s' "$1" | tr -d '\n\r'; }
-        printf 'params={\"token\":\"%s\",\"files\":\"codecov.txt\",\"disable_search\":true,\"working-directory\":\"%s\"%s%s%s%s}' \
-          "$(safe "${TOKEN}")" \
-          "$(safe "${PACKAGE_PATH}")" \
-          "$(safe "${ROOTDIR}")" \
-          "$(safe "${BASE_SHA}")$(safe "${CODECV_YML_PTH}")$(safe "${DIS_FILE_FIXES}")$(safe "${DISABLE_TELEM}")$(safe "${DRY_RUN}")$(safe "${ENV_VARS}")$(safe "${FAIL_CI_IF_ERR}")" \
-          "$(safe "${FLAGS}")$(safe "${OVERRIDE_BRNCH}")$(safe "${OVERRIDE_BUILD}")$(safe "${OVERRIDE_B_URL}")$(safe "${OVERRIDE_COMIT}")$(safe "${OVERRIDE_PR}")" \
-          "$(safe "${NAME}")$(safe "${SWIFT_PROJECT}")$(safe "${VERBOSE}")" \
+        # Sanitize each input-derived value before embedding in the output
+        safe_token="$(printf '%s' "${TOKEN}" | tr -d '\n\r')"
+        safe_pkg_path="$(printf '%s' "${PACKAGE_PATH}" | tr -d '\n\r')"
+        safe_rootdir="$(printf '%s' "${ROOTDIR}" | tr -d '\n\r')"
+        safe_base_sha="$(printf '%s' "${BASE_SHA}" | tr -d '\n\r')"
+        safe_codecv_yml_pth="$(printf '%s' "${CODECV_YML_PTH}" | tr -d '\n\r')"
+        safe_dis_file_fixes="$(printf '%s' "${DIS_FILE_FIXES}" | tr -d '\n\r')"
+        safe_disable_telem="$(printf '%s' "${DISABLE_TELEM}" | tr -d '\n\r')"
+        safe_dry_run="$(printf '%s' "${DRY_RUN}" | tr -d '\n\r')"
+        safe_env_vars="$(printf '%s' "${ENV_VARS}" | tr -d '\n\r')"
+        safe_fail_ci_if_err="$(printf '%s' "${FAIL_CI_IF_ERR}" | tr -d '\n\r')"
+        safe_flags="$(printf '%s' "${FLAGS}" | tr -d '\n\r')"
+        safe_override_brnch="$(printf '%s' "${OVERRIDE_BRNCH}" | tr -d '\n\r')"
+        safe_override_build="$(printf '%s' "${OVERRIDE_BUILD}" | tr -d '\n\r')"
+        safe_override_b_url="$(printf '%s' "${OVERRIDE_B_URL}" | tr -d '\n\r')"
+        safe_override_comit="$(printf '%s' "${OVERRIDE_COMIT}" | tr -d '\n\r')"
+        safe_override_pr="$(printf '%s' "${OVERRIDE_PR}" | tr -d '\n\r')"
+        safe_name="$(printf '%s' "${NAME}" | tr -d '\n\r')"
+        safe_swift_project="$(printf '%s' "${SWIFT_PROJECT}" | tr -d '\n\r')"
+        safe_verbose="$(printf '%s' "${VERBOSE}" | tr -d '\n\r')"
+
+        printf 'params={"token":"%s","files":"codecov.txt","disable_search":true,"working-directory":"%s"%s%s%s%s}' \
+          "${safe_token}" \
+          "${safe_pkg_path}" \
+          "${safe_rootdir}" \
+          "${safe_base_sha}${safe_codecv_yml_pth}${safe_dis_file_fixes}${safe_disable_telem}${safe_dry_run}${safe_env_vars}${safe_fail_ci_if_err}" \
+          "${safe_flags}${safe_override_brnch}${safe_override_build}${safe_override_b_url}${safe_override_comit}${safe_override_pr}" \
+          "${safe_name}${safe_swift_project}${safe_verbose}" \
           >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: chainguard-actions/codecov-codecov-action@8ad5d75bb63ac4905b522f7136c0b3ee5db84eb7 # v6.0.0
+      uses: chainguard-actions/codecov-codecov-action@fd70c8ab4005495712c8ba95ec30d0c902c2984c # v6.0.0
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}

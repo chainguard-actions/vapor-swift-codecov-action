@@ -7,33 +7,31 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      # Create a minimal Swift package fixture and mock tools
-      - name: Install mock Swift toolchain and create fixtures
+      # Install mock Swift toolchain and llvm-cov so the action can run without real Swift
+      - name: Install mock tools
         run: |
           mkdir -p /tmp/mock-bin
-          mkdir -p /tmp/swiftpkg2/.build/debug/codecov
-          mkdir -p /tmp/swiftpkg2/Sources/MyLib2
-          mkdir -p /tmp/swiftpkg2/Tests/MyLib2Tests
+          mkdir -p /tmp/testpkg/.build/debug/codecov
 
-          # Create fake coverage data files
-          echo '{}' > /tmp/swiftpkg2/.build/debug/codecov/MyLib2.json
-          echo 'fake profdata' > /tmp/swiftpkg2/.build/debug/codecov/default.profdata
+          # Create fake coverage data
+          echo '{}' > /tmp/testpkg/.build/debug/codecov/Pkg.json
+          echo 'fake profdata' > /tmp/testpkg/.build/debug/codecov/default.profdata
 
-          # Create a fake xctest binary
-          touch /tmp/swiftpkg2/.build/debug/MyLib2PackageTests.xctest
-          chmod +x /tmp/swiftpkg2/.build/debug/MyLib2PackageTests.xctest
+          # Create fake xctest binary
+          touch /tmp/testpkg/.build/debug/PkgPackageTests.xctest
+          chmod +x /tmp/testpkg/.build/debug/PkgPackageTests.xctest
 
-          # Mock 'swift' binary using printf
+          # Mock 'swift' binary
           printf '%s\n' '#!/bin/sh' \
             'case "$*" in' \
             '  *--show-codecov-path*)' \
-            '    echo "/tmp/swiftpkg2/.build/debug/codecov/MyLib2.json"' \
+            '    echo "/tmp/testpkg/.build/debug/codecov/Pkg.json"' \
             '    ;;' \
             '  *--show-bin-path*)' \
-            '    echo "/tmp/swiftpkg2/.build/debug"' \
+            '    echo "/tmp/testpkg/.build/debug"' \
             '    ;;' \
             '  *describe*--type*json*)' \
-            '    echo '"'"'{"name":"MyLib2","targets":[]}'"'"'' \
+            '    echo '"'"'{"name":"Pkg","targets":[]}'"'"'' \
             '    ;;' \
             '  *)' \
             '    echo "mock swift: $*" >&2' \
@@ -44,23 +42,17 @@ jobs:
 
           # Mock llvm-cov
           printf '%s\n' '#!/bin/sh' \
-            'echo "# mock coverage data"' \
+            'echo "# mock coverage"' \
             'exit 0' > /tmp/mock-bin/llvm-cov
           chmod +x /tmp/mock-bin/llvm-cov
-
-          # Mock xcrun (macOS tool, not needed on Linux but action calls it)
-          printf '%s\n' '#!/bin/sh' \
-            'exec "$@"' > /tmp/mock-bin/xcrun
-          chmod +x /tmp/mock-bin/xcrun
 
           echo "/tmp/mock-bin" >> "$GITHUB_PATH"
 
       - id: action
         uses: .
         with:
-          package_path: /tmp/swiftpkg2
+          package_path: /tmp/testpkg
           dry_run: 'true'
-          codecov_token: 'test-token-additional'
           base_sha: 'abc1234def5678'
           codecov_yml_path: '.codecov.yml'
           disable_file_fixes: 'true'
@@ -71,7 +63,7 @@ jobs:
           override_build_url: 'https://example.com/build/42'
           override_commit: 'abc1234def5678abc1234def5678abc1234def56'
           override_pr: '99'
-          swift_project: 'MyLib2'
+          swift_project: 'MySwiftProject'
         continue-on-error: true
 
       - name: Assert action was invoked with additional passthrough params
@@ -79,9 +71,6 @@ jobs:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
           echo "Action outcome: $OUTCOME"
-          # The action should be invoked (not skipped). It may fail at the codecov upload
-          # step without a real token/coverage, but the key assertion is that all the
-          # passthrough parameters were accepted and the action ran.
           if [ "$OUTCOME" = "skipped" ]; then
             echo "FAIL: action was unexpectedly skipped"
             exit 1
