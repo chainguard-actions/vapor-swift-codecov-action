@@ -102,5 +102,5 @@ runs:
           | tr -d '\n\r')"
         printf '%s' "${safe_params}" >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: chainguard-actions/codecov-codecov-action@5d0a84a54ecdc43787bb81afa96f5d1824e09cb5 # v5
+      uses: chainguard-actions/codecov-codecov-action@239fd4a4d3de7cd25aac214b94e2ad0e63783ecb # v5
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
