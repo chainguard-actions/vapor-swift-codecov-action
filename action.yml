@@ -90,5 +90,5 @@ runs:
           "${SAFE_ROOTDIR}" "${SAFE_FLAGS}" "${SAFE_ENVVARS}" "${SAFE_RAISEERR}" "${SAFE_VERBOSE}" "${SAFE_DRY_RUN}" \
           >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: chainguard-actions/codecov-codecov-action@8ad5d75bb63ac4905b522f7136c0b3ee5db84eb7 # v6.0.0
+      uses: chainguard-actions/codecov-codecov-action@4ad7f0087dfde3561e5bfc2b1d7cd40f3df434d1 # v6.0.0
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
