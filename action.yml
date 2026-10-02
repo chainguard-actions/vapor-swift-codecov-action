@@ -160,5 +160,5 @@ runs:
           "${safe_name}${safe_swift_project}${safe_verbose}" \
           >>"${GITHUB_OUTPUT}"
     - id: upload-coverage-report
-      uses: chainguard-actions/codecov-codecov-action@601ae6f885c65a515ee95e2f2e3d2ff61ceb5933 # v7.0.0
+      uses: chainguard-actions/codecov-codecov-action@0bfeadf05f87f79ee585e636846fba1b54d91fd2 # v7.0.0
       with: ${{ fromJSON(steps.convert-coverage-report.outputs.params) }}
