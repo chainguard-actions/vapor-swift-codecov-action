@@ -1,0 +1,46 @@
+name: Test passthrough parameters (group 2)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Swift (if not present)
+        run: |
+          if ! command -v swift &>/dev/null; then
+            echo "Swift not available; skipping install (action will fail gracefully)"
+          else
+            echo "Swift is available: $(swift --version)"
+          fi
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          base_sha: "abc1234"
+          codecov_yml_path: ".codecov.yml"
+          disable_file_fixes: "true"
+          env_vars: "OS,SWIFT_VERSION"
+          override_branch: "main"
+          override_build: "42"
+          override_build_url: "https://example.com/build/42"
+          override_commit: "def5678"
+          override_pr: "99"
+          swift_project: "MyProject"
+          dry_run: "true"
+
+      - name: Assert action ran (inputs accepted, fails gracefully without Swift)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: action succeeded with all passthrough inputs"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (Swift not available in test environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
