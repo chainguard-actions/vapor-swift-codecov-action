@@ -1,4 +1,4 @@
-name: Test additional passthrough parameters
+name: Test extra passthrough parameters
 on:
   workflow_dispatch:
 jobs:
@@ -7,31 +7,31 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      # Install mock Swift toolchain and llvm-cov so the action can run without real Swift
+      # Install mock Swift toolchain and llvm-cov
       - name: Install mock tools
         run: |
           mkdir -p /tmp/mock-bin
-          mkdir -p /tmp/testpkg/.build/debug/codecov
+          mkdir -p /tmp/testpkg2/.build/debug/codecov
 
           # Create fake coverage data
-          echo '{}' > /tmp/testpkg/.build/debug/codecov/Pkg.json
-          echo 'fake profdata' > /tmp/testpkg/.build/debug/codecov/default.profdata
+          echo '{}' > /tmp/testpkg2/.build/debug/codecov/Pkg2.json
+          echo 'fake profdata' > /tmp/testpkg2/.build/debug/codecov/default.profdata
 
           # Create fake xctest binary
-          touch /tmp/testpkg/.build/debug/PkgPackageTests.xctest
-          chmod +x /tmp/testpkg/.build/debug/PkgPackageTests.xctest
+          touch /tmp/testpkg2/.build/debug/Pkg2PackageTests.xctest
+          chmod +x /tmp/testpkg2/.build/debug/Pkg2PackageTests.xctest
 
           # Mock 'swift' binary
           printf '%s\n' '#!/bin/sh' \
             'case "$*" in' \
             '  *--show-codecov-path*)' \
-            '    echo "/tmp/testpkg/.build/debug/codecov/Pkg.json"' \
+            '    echo "/tmp/testpkg2/.build/debug/codecov/Pkg2.json"' \
             '    ;;' \
             '  *--show-bin-path*)' \
-            '    echo "/tmp/testpkg/.build/debug"' \
+            '    echo "/tmp/testpkg2/.build/debug"' \
             '    ;;' \
             '  *describe*--type*json*)' \
-            '    echo '"'"'{"name":"Pkg","targets":[]}'"'"'' \
+            '    echo '"'"'{"name":"Pkg2","targets":[]}'"'"'' \
             '    ;;' \
             '  *)' \
             '    echo "mock swift: $*" >&2' \
@@ -51,9 +51,9 @@ jobs:
       - id: action
         uses: .
         with:
-          package_path: /tmp/testpkg
+          package_path: /tmp/testpkg2
           dry_run: 'true'
-          base_sha: 'abc1234def5678'
+          base_sha: 'abc1234'
           codecov_yml_path: '.codecov.yml'
           disable_file_fixes: 'true'
           disable_telem: 'true'
@@ -61,12 +61,12 @@ jobs:
           override_branch: 'main'
           override_build: '42'
           override_build_url: 'https://example.com/build/42'
-          override_commit: 'abc1234def5678abc1234def5678abc1234def56'
+          override_commit: 'deadbeef'
           override_pr: '99'
           swift_project: 'MySwiftProject'
         continue-on-error: true
 
-      - name: Assert action was invoked with additional passthrough params
+      - name: Assert action was invoked with extra passthrough params
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
@@ -75,4 +75,4 @@ jobs:
             echo "FAIL: action was unexpectedly skipped"
             exit 1
           fi
-          echo "PASS: action was invoked with additional passthrough parameters (outcome=$OUTCOME)"
+          echo "PASS: action was invoked with extra passthrough params (outcome=$OUTCOME)"
