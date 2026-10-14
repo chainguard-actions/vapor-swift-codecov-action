@@ -10,69 +10,91 @@
 
 **Harden Agent Version:** `2`
 
-Action **vapor--swift-codecov-action/v0.3.7** was hardened automatically. 5 finding(s) were identified and resolved across 1 iteration(s).
+Action **vapor--swift-codecov-action/v0.3.7** was hardened automatically. 4 finding(s) were identified and resolved across 4 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Rule (b) — Unquoted shell variable expansion of untrusted data in the `determine-package-info` step. The env vars `${PACKAGE_PATH}` (from `inputs.package_path`) and `${BUILD_PARAMETERS}` (from `inputs.build_parameters`) are expanded unquoted in multiple `swift` commands: `swift test ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-codecov-path`, `swift build ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-bin-path`, and `swift package ${PACKAGE_PATH} describe`. An attacker-controlled input containing shell metacharacters (`;`, `|`, `&`, `$(...)`, etc.) can achieve command injection.
+Rule (b) violation in the `determine-package-info` step: the env vars `${PACKAGE_PATH}` and `${BUILD_PARAMETERS}` — sourced from `inputs.package_path` and `inputs.build_parameters` — are expanded **unquoted** inside shell commands:
+  `swift test ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-codecov-path`
+  `swift build ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-bin-path`
+  `swift package ${PACKAGE_PATH} describe ...`
+An attacker-controlled input containing shell metacharacters (`;`, `|`, `$(...)`, etc.) can break out of the intended argument context and execute arbitrary commands. Fix: double-quote every expansion, e.g. `"${PACKAGE_PATH}"` and `"${BUILD_PARAMETERS}"`.
 
 Locations:
 
 - `action.yml:62`
-- `action.yml:69`
 - `action.yml:70`
+- `action.yml:71`
 
 ### script-injection (severity: high)
 
-Rule (b) — Unquoted shell variable expansion of untrusted data in the `convert-coverage-report` step. `${COVERAGE_OBJECTS}` (an inherited env var set from untrusted `inputs.*`-derived data in the previous step) is expanded unquoted inside `$(eval echo ${COVERAGE_OBJECTS})`, and `${PACKAGE_PATH}` (from `inputs.package_path`) is expanded unquoted in the output redirect `>"${PACKAGE_PATH}codecov.txt"`. Both allow shell metacharacter injection.
+Rule (b) violation in the `convert-coverage-report` step: `${COVERAGE_OBJECTS}` is expanded **unquoted** inside a command substitution passed to `eval`:
+  `$(eval echo ${COVERAGE_OBJECTS})`
+`COVERAGE_OBJECTS` is an inherited env var (set in `$GITHUB_ENV` by the previous step) whose value is constructed from filesystem paths that can be influenced by `inputs.package_path` and `inputs.build_parameters`. The unquoted expansion inside `eval` allows shell metacharacters to be interpreted, enabling command injection.
 
 Locations:
 
-- `action.yml:121`
+- `action.yml:120`
+
+### github-env-injection (severity: high)
+
+In the `convert-coverage-report` step, multiple `inputs.*` values are mapped to env vars (TOKEN, ROOTDIR, BASE_SHA, CODECV_YML_PTH, DIS_FILE_FIXES, DISABLE_TELEM, DRY_RUN, ENV_VARS, FAIL_CI_IF_ERR, FLAGS, OVERRIDE_BRNCH, OVERRIDE_BUILD, OVERRIDE_B_URL, OVERRIDE_COMIT, OVERRIDE_PR, NAME, SWIFT_PROJECT, VERBOSE) and then written directly to `$GITHUB_OUTPUT` via `printf ... >> "${GITHUB_OUTPUT}"` without the required newline-stripping sanitization (`printf '%s' "$VAR" | tr -d '\n\r'`). A caller-supplied value containing a newline character can inject additional key=value pairs into `GITHUB_OUTPUT`, potentially overwriting outputs consumed by downstream steps.
+
+Locations:
+
 - `action.yml:122`
 
 ### suspicious-run-content (severity: high)
 
-Sub-check `eval-dynamic`: The `convert-coverage-report` step uses `$(eval echo ${COVERAGE_OBJECTS})` — `eval` with command substitution (`$(...)`). `COVERAGE_OBJECTS` is an env var set from filesystem paths influenced by untrusted `inputs.package_path` and `inputs.build_parameters`. This pattern dynamically constructs and executes shell commands and matches the `eval $(...)`/eval-dynamic failing pattern.
+Sub-check `eval-dynamic`: the `convert-coverage-report` step uses `eval` with command substitution (`$(...)`) to dynamically construct and execute a shell command:
+  `$(eval echo ${COVERAGE_OBJECTS})`
+This matches the `eval $()` pattern flagged by the `eval-dynamic` check. Combined with the unquoted `${COVERAGE_OBJECTS}` expansion, this allows dynamic code execution from a value that can be influenced by workflow inputs.
 
 Locations:
 
-- `action.yml:121`
-
-### github-env-injection (severity: high)
-
-The `determine-package-info` step writes `covobjs` and `covpath` to `$GITHUB_ENV` without sanitization (`printf '%s' ... | tr -d '\n\r'`). Both variables are derived from `${PACKAGE_PATH}` and `${BUILD_PARAMETERS}`, which hold values from `inputs.package_path` and `inputs.build_parameters` respectively. A newline injected via these inputs can add arbitrary environment variables or PATH entries for subsequent steps.
-
-Locations:
-
-- `action.yml:88`
-- `action.yml:89`
-
-### github-env-injection (severity: high)
-
-The `convert-coverage-report` step writes multiple `inputs.*`-derived env vars (`${TOKEN}`, `${PACKAGE_PATH}`, `${ROOTDIR}`, `${BASE_SHA}`, and many others) to `$GITHUB_OUTPUT` via `printf ... >> "${GITHUB_OUTPUT}"` without sanitization (`printf '%s' ... | tr -d '\n\r'`). A newline embedded in any of these input values can inject additional output parameters that downstream steps consume.
-
-Locations:
-
-- `action.yml:124`
+- `action.yml:120`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, suspicious-run-content, github-env-injection
+**Fixes applied:** script-injection, github-env-injection, suspicious-run-content
 
 **Notes:**
 
-Fixed all 5 findings in action.yml:
+Fixed all four findings in hardened/action/action.yml:
 
-1. script-injection (determine-package-info step): Tokenized PACKAGE_PATH and BUILD_PARAMETERS into bash arrays using the xargs/NUL-separated read loop pattern. Swift commands now use '"${pkg_path_args[@]}"' and '"${build_param_args[@]}"' instead of unquoted ${PACKAGE_PATH} and ${BUILD_PARAMETERS}.
+1. script-injection (determine-package-info step): PACKAGE_PATH is now conditionally expanded as ${PACKAGE_PATH:+"${PACKAGE_PATH}"} (drops out when empty, quoted when present). BUILD_PARAMETERS is tokenized into a bash array using xargs (quote-aware, handles multi-word flags like '-c release') and expanded as "${build_params[@]}".
 
-2. script-injection + suspicious-run-content (convert-coverage-report step): Eliminated 'eval echo ${COVERAGE_OBJECTS}' entirely. Coverage objects are now stored as a base64-encoded NUL-separated list in GITHUB_ENV and deserialized into a bash array in the next step. The array is expanded as '"${covobjs_args[@]}"'. PACKAGE_PATH in the output redirect is now properly quoted.
+2. script-injection + suspicious-run-content (convert-coverage-report step): Eliminated eval echo ${COVERAGE_OBJECTS} entirely. COVERAGE_OBJECTS is now stored as newline-separated plain paths via a heredoc (<<COVEOF) in $GITHUB_ENV. In the convert step, a while-read loop builds a cov_args array with --object= prefixes, expanded safely as "${cov_args[@]}".
 
-3. github-env-injection (determine-package-info step): COVERAGE_OBJECTS and COVERAGE_DATA are sanitized with 'tr -d '\n\r'' before writing to $GITHUB_ENV.
+3. github-env-injection (convert-coverage-report step): All 19 input-derived env vars written to $GITHUB_OUTPUT are now sanitized with printf '%s' "${VAR}" | tr -d '\n\r' before use in the printf command.
 
-4. github-env-injection (convert-coverage-report step): All 19 input-derived variables (TOKEN, PACKAGE_PATH, ROOTDIR, BASE_SHA, and all passthrough parameters) are sanitized with 'printf '%s' "${VAR}" | tr -d '\n\r'' before being written to $GITHUB_OUTPUT.
+The Perl <> diamond operator was carefully preserved unchanged.
+
+### Iteration 1
+
+**Fixes applied:** github-env-injection
+
+**Notes:**
+
+Fixed the github-env-injection finding in the `determine-package-info` step of action.yml. The `covpath` variable (derived from caller-controlled `inputs.package_path`) was written to `$GITHUB_ENV` without sanitization. Fixed by adding `safe_covpath="$(printf '%s' "${covpath}" | tr -d '\n\r')"` before the echo, then using `safe_covpath` in the write. The `covobjs` variable is written using the heredoc form (`COVERAGE_OBJECTS<<COVEOF`...`COVEOF`), which is the correct multi-line value form — per the rules, this should NOT be sanitized as the heredoc delimiter already prevents injection and stripping newlines would corrupt the intentionally multi-line value.
+
+### Iteration 2
+
+**Fixes applied:** github-env-injection
+
+**Notes:**
+
+Fixed the github-env-injection finding in action.yml at line 88. The COVERAGE_OBJECTS heredoc write to $GITHUB_ENV used a fixed delimiter 'COVEOF', which could be exploited by a crafted package name containing a line matching the delimiter, allowing early termination of the heredoc and injection of additional environment variables. The fix replaces the fixed delimiter with a randomly generated one: `cov_eof="COVEOF_$(openssl rand -hex 16)"`, making it cryptographically impossible for an attacker to predict or embed the delimiter in the covobjs value. The multi-line nature of covobjs (multiple file paths separated by newlines) means stripping newlines is not appropriate here; the random delimiter is the correct mitigation.
+
+### Iteration 1
+
+**Fixes applied:** publish-gate
+
+**Notes:**
+
+Fixed lines 98-114 in action.yml: replaced backslash-escaped double quotes in format() strings (e.g., format(',\"root_dir\":\"{0}\"', ...)) with the correct upstream single-quoted format strings containing unescaped double quotes (e.g., format(',"root_dir":"{0}"', ...)). All 17 env vars in the convert-coverage-report step's env block were corrected: ROOTDIR, BASE_SHA, CODECV_YML_PTH, DIS_FILE_FIXES, DISABLE_TELEM, DRY_RUN, ENV_VARS, FAIL_CI_IF_ERR, FLAGS, OVERRIDE_BRNCH, OVERRIDE_BUILD, OVERRIDE_B_URL, OVERRIDE_COMIT, OVERRIDE_PR, NAME, SWIFT_PROJECT, and VERBOSE.
 
