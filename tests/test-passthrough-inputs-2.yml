@@ -1,4 +1,4 @@
-name: Test passthrough inputs (set A)
+name: Test passthrough inputs (name, override_branch, override_build, override_build_url, override_commit, override_pr, swift_project)
 on:
   workflow_dispatch:
 jobs:
@@ -10,15 +10,15 @@ jobs:
         uses: .
         continue-on-error: true
         with:
-          base_sha: "abc1234"
-          codecov_yml_path: ".codecov.yml"
-          disable_file_fixes: "true"
-          disable_telem: "true"
-          env_vars: "OS,SWIFT_VERSION"
-          fail_ci_if_error: "false"
           name: "my-coverage-upload"
+          override_branch: "main"
+          override_build: "42"
+          override_build_url: "https://example.com/build/42"
+          override_commit: "abc1234567890"
+          override_pr: "99"
+          swift_project: "MySwiftProject"
           dry_run: "true"
-      - name: Assert action ran (fails gracefully without a Swift project)
+      - name: Assert action ran (Swift not available, graceful failure expected)
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
@@ -26,7 +26,7 @@ jobs:
           if [ "$OUTCOME" = "success" ]; then
             echo "PASS: action succeeded"
           elif [ "$OUTCOME" = "failure" ]; then
-            echo "PASS: action failed gracefully (no Swift project in test environment)"
+            echo "PASS: action failed gracefully (Swift toolchain not available in runner)"
           else
             echo "FAIL: unexpected outcome '$OUTCOME'"
             exit 1
