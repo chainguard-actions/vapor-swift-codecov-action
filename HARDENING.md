@@ -16,33 +16,33 @@ Action **vapor--swift-codecov-action/v0.3.1** was hardened automatically. 3 find
 
 ### unpinned-uses (severity: high)
 
-The composite action uses `codecov/codecov-action@v5`, which is pinned to a mutable tag (`v5`) rather than an immutable 40-character commit SHA. This means the referenced action can be silently changed by the upstream maintainer or an attacker who compromises the account, enabling supply-chain attacks.
+The step 'upload-coverage-report' uses 'codecov/codecov-action@v5', which is pinned to a mutable tag ('v5') rather than an immutable 40-character commit SHA. This means the action could be silently replaced with a malicious version without any change to the workflow file.
 
 Locations:
 
-- `action.yml:83`
+- `action.yml:79`
 
 ### script-injection (severity: high)
 
-Rule (b) violation: In the `determine-package-info` step, the env vars `${PACKAGE_PATH}` (sourced from `inputs.package_path`) and `${BUILD_PARAMETERS}` (sourced from `inputs.build_parameters`) are expanded **unquoted** inside shell commands. Unquoted expansions allow an attacker-controlled input containing shell metacharacters (`;`, `|`, `&`, `$(...)`, etc.) to break out of the intended command and execute arbitrary code. Offending lines:
-- `binpath="$(swift build ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-bin-path)"`
-- `pkgname="$(swift package ${PACKAGE_PATH} describe --type json | perl ...)"`
-- `covpath="$(dirname "$(swift test ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-codecov-path)")"`
-All three should use `"${PACKAGE_PATH}"` and `"${BUILD_PARAMETERS}"` (double-quoted).
+Sub-rule (b): In the 'determine-package-info' step, the env vars ${PACKAGE_PATH} and ${BUILD_PARAMETERS} — which hold values derived from inputs.package_path and inputs.build_parameters respectively — are expanded unquoted inside shell commands. For example: `swift build ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-bin-path` and `swift package ${PACKAGE_PATH} describe ...` and `swift test ${PACKAGE_PATH} ${BUILD_PARAMETERS} --show-codecov-path`. An attacker-controlled input containing shell metacharacters (`;`, `|`, `&`, `$(...)`, etc.) can achieve command injection. All expansions of these variables must be double-quoted.
 
 Locations:
 
-- `action.yml:41`
-- `action.yml:42`
-- `action.yml:47`
+- `action.yml:44`
 
 ### github-env-injection (severity: high)
 
-In the `convert-coverage-report` step, multiple env vars derived from action inputs (`TOKEN` from `inputs.codecov_token`, `PACKAGE_PATH` from `inputs.package_path`, `ROOTDIR`, `FLAGS`, `ENVVARS`, `RAISEERR`, `VERBOSE`, `DRY_RUN` from other inputs) are written directly to `$GITHUB_OUTPUT` via `printf ... >> "${GITHUB_OUTPUT}"` without the required sanitization step (`printf '%s' "$VAR" | tr -d '\n\r'`). A newline character embedded in any of these input values could inject additional key=value pairs into the output file, potentially overwriting other step outputs.
+Two unsanitized writes to special GitHub environment files are present:
+
+(1) In the 'determine-package-info' step, the values ${binpath} and ${covpath} — computed by running swift commands that incorporate the unsanitized, attacker-controlled ${PACKAGE_PATH} and ${BUILD_PARAMETERS} inputs — are written directly to $GITHUB_ENV without the required `printf '%s' ... | tr -d '\n\r'` sanitization step. A newline embedded in these values can inject arbitrary environment variables into subsequent steps.
+
+(2) In the 'convert-coverage-report' step, multiple env vars derived from inputs (TOKEN from inputs.codecov_token, PACKAGE_PATH from inputs.package_path, ROOTDIR/FLAGS/ENVVARS/RAISEERR/VERBOSE/DRY_RUN from other inputs) are written directly to $GITHUB_OUTPUT via `printf ... >> "${GITHUB_OUTPUT}"` without sanitization. Newlines in any of these values can inject arbitrary output variables.
 
 Locations:
 
-- `action.yml:72`
+- `action.yml:57`
+- `action.yml:58`
+- `action.yml:76`
 
 ## Iteration Notes
 
@@ -53,15 +53,20 @@ Locations:
 **Notes:**
 
 Fixed three security findings in hardened/action/action.yml:
-1. unpinned-uses (line 83): Pinned `codecov/codecov-action@v5` to full SHA `0fb7174895f61a3b6b78fc075e0cd60383518dac` with `# v5` comment.
-2. script-injection (lines 41, 42, 47): Added double-quotes around `${PACKAGE_PATH}` and `${BUILD_PARAMETERS}` in all three swift command invocations in the `determine-package-info` step.
-3. github-env-injection (line 72): Added sanitization for all 8 input-derived values (TOKEN, PACKAGE_PATH, ROOTDIR, FLAGS, ENVVARS, RAISEERR, VERBOSE, DRY_RUN) written to $GITHUB_OUTPUT using `printf '%s' "${VAR}" | tr -d '\n\r'` to strip embedded newlines before writing.
 
-### Iteration 2
+1. **unpinned-uses**: Pinned `codecov/codecov-action@v5` to the full commit SHA `0fb7174895f61a3b6b78fc075e0cd60383518dac` with a `# v5` comment for readability.
 
-**Fixes applied:** github-env-injection
+2. **script-injection**: Changed all unquoted `${PACKAGE_PATH}` and `${BUILD_PARAMETERS}` expansions in the `determine-package-info` step's shell commands to use the `${VAR:+"$VAR"}` pattern. This double-quotes the values when non-empty (preventing shell metacharacter injection) and omits them entirely when empty (avoiding empty-argument issues with optional flags).
+
+3. **github-env-injection**: 
+   - In `determine-package-info`: Added `safe_coverage_object` and `safe_coverage_data` variables that sanitize the computed paths using `printf '%s' ... | tr -d '\n\r'` before writing to `$GITHUB_ENV`.
+   - In `convert-coverage-report`: Added sanitization for all 8 env vars (TOKEN, PACKAGE_PATH, ROOTDIR, FLAGS, ENVVARS, RAISEERR, VERBOSE, DRY_RUN) using `printf '%s' ... | tr -d '\n\r'` before using them in the `printf` call that writes to `$GITHUB_OUTPUT`.
+
+### Iteration 1
+
+**Fixes applied:** publish-gate
 
 **Notes:**
 
-Fixed the github-env-injection finding in the `determine-package-info` step of action.yml. The values `${binpath}/${excname}` and `${covpath}/default.profdata` are now sanitized with `printf '%s' "$VAR" | tr -d '\n\r'` before being written to `$GITHUB_ENV`. This matches the sanitization pattern already used in the `convert-coverage-report` step for `$GITHUB_OUTPUT` writes.
+Fixed lines 59-64 in action.yml by removing backslashes before double quotes in the format() expressions for ROOTDIR, RAISEERR, VERBOSE, DRY_RUN, FLAGS, and ENVVARS env vars. The previous code had \"root_dir\" (backslash-escaped quotes) which produced literal backslashes in the string values, breaking downstream JSON parsing. The corrected code uses plain double quotes inside single-quoted format strings: format(',"root_dir":"{0}"', ...) which produces the correct JSON fragment ,"root_dir":"value" without any backslashes.
 
