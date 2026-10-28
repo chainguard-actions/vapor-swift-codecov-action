@@ -6,15 +6,15 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 
 ## Versions
 
-| Version | Tag | Upstream commit |
-|---------|-----|-----------------|
-| v0.3.1 | [`v0.3.1`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.1) | [`ebd71b8`](https://github.com/vapor/swift-codecov-action/commit/ebd71b8d89a9a3b0435257eee85d2314d578df8f) |
-| v0.3.2 | [`v0.3.2`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.2) | [`79ae067`](https://github.com/vapor/swift-codecov-action/commit/79ae06758474dd5d8fa5f7dedf417583948e69a9) |
-| v0.3.3 | [`v0.3.3`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.3) | [`a7ac794`](https://github.com/vapor/swift-codecov-action/commit/a7ac79416ebeb41ce3ffdf7eca00212c4376f881) |
-| v0.3.4 | [`v0.3.4`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.4) | [`d5ea9e9`](https://github.com/vapor/swift-codecov-action/commit/d5ea9e9f9fbf6cd7694e19240400288b034e3a08) |
-| v0.3.5 | [`v0.3.5`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.5) | [`2f478f2`](https://github.com/vapor/swift-codecov-action/commit/2f478f2fd22e06ca363967d0fb6c6593a8548cee) |
-| v0.3.6 | [`v0.3.6`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.6) | [`855faf6`](https://github.com/vapor/swift-codecov-action/commit/855faf6b50974544c7ab3da724f49e602e43edc6) |
-| v0.3.7 | [`v0.3.7`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.7) | [`c93caea`](https://github.com/vapor/swift-codecov-action/commit/c93caea6600dbe3af0266a8ef6ee195c00181f04) |
+| Version | Tag | Upstream commit | Hardening report |
+|---------|-----|-----------------|------------------|
+| v0.3.1 | [`v0.3.1`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.1) | [`ebd71b8`](https://github.com/vapor/swift-codecov-action/commit/ebd71b8d89a9a3b0435257eee85d2314d578df8f) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.1/HARDENING.md) |
+| v0.3.2 | [`v0.3.2`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.2) | [`79ae067`](https://github.com/vapor/swift-codecov-action/commit/79ae06758474dd5d8fa5f7dedf417583948e69a9) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.2/HARDENING.md) |
+| v0.3.3 | [`v0.3.3`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.3) | [`a7ac794`](https://github.com/vapor/swift-codecov-action/commit/a7ac79416ebeb41ce3ffdf7eca00212c4376f881) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.3/HARDENING.md) |
+| v0.3.4 | [`v0.3.4`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.4) | [`d5ea9e9`](https://github.com/vapor/swift-codecov-action/commit/d5ea9e9f9fbf6cd7694e19240400288b034e3a08) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.4/HARDENING.md) |
+| v0.3.5 | [`v0.3.5`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.5) | [`2f478f2`](https://github.com/vapor/swift-codecov-action/commit/2f478f2fd22e06ca363967d0fb6c6593a8548cee) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.5/HARDENING.md) |
+| v0.3.6 | [`v0.3.6`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.6) | [`855faf6`](https://github.com/vapor/swift-codecov-action/commit/855faf6b50974544c7ab3da724f49e602e43edc6) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.6/HARDENING.md) |
+| v0.3.7 | [`v0.3.7`](https://github.com/chainguard-actions/vapor-swift-codecov-action/tree/v0.3.7) | [`c93caea`](https://github.com/vapor/swift-codecov-action/commit/c93caea6600dbe3af0266a8ef6ee195c00181f04) | [`HARDENING.md`](https://github.com/chainguard-actions/vapor-swift-codecov-action/blob/v0.3.7/HARDENING.md) |
 
 ## Privacy
 
