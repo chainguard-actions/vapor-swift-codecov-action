@@ -1,0 +1,90 @@
+name: Test override/passthrough params with mocked Swift toolchain
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up mock Swift package and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="$GITHUB_WORKSPACE/mock-override-pkg"
+          MOCKBIN="$RUNNER_TEMP/mockbin"
+          mkdir -p "$PKG/.build/debug/codecov" "$MOCKBIN"
+          # Legacy-build-system coverage object: executable .xctest binary
+          printf '#!/bin/sh\nexit 0\n' > "$PKG/.build/debug/MockPkgPackageTests.xctest"
+          chmod +x "$PKG/.build/debug/MockPkgPackageTests.xctest"
+
+          cat > "$MOCKBIN/swift" <<EOF
+          #!/bin/bash
+          case "\$*" in
+            *--show-codecov-path*) echo "$PKG/.build/debug/codecov/MockPkg.json" ;;
+            *--show-bin-path*)     echo "$PKG/.build/debug" ;;
+            *describe*)            echo '{"name":"MockPkg"}' ;;
+            *) echo "mock swift: unexpected args: \$*" >&2; exit 1 ;;
+          esac
+          EOF
+          cat > "$MOCKBIN/llvm-cov" <<'EOF'
+          #!/bin/bash
+          echo "MOCK-LLVM-COV $*"
+          EOF
+          chmod +x "$MOCKBIN/swift" "$MOCKBIN/llvm-cov"
+          echo "$MOCKBIN" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          package_path: ${{ github.workspace }}/mock-override-pkg
+          dry_run: 'true'
+          fail_ci_if_error: 'false'
+          base_sha: ${{ github.sha }}
+          codecov_yml_path: 'codecov.yml'
+          disable_file_fixes: 'true'
+          disable_telem: 'true'
+          env_vars: 'OS,RUNNER'
+          override_branch: 'test-branch'
+          override_build: '12345'
+          override_build_url: 'https://example.com/builds/12345'
+          override_commit: ${{ github.sha }}
+          override_pr: '42'
+          swift_project: 'MockPkg'
+
+      - name: Assert coverage report was generated from mocked toolchain
+        shell: bash
+        env:
+          PKG: ${{ github.workspace }}/mock-override-pkg
+        run: |
+          echo "COVERAGE_DATA=$COVERAGE_DATA"
+          echo "SWIFT_CODECOV_OBJECTS_FILE=$SWIFT_CODECOV_OBJECTS_FILE"
+          if [ "$COVERAGE_DATA" != "$PKG/.build/debug/codecov/default.profdata" ]; then
+            echo "FAIL: unexpected COVERAGE_DATA"
+            exit 1
+          fi
+          echo "objects file contents:"
+          cat "$SWIFT_CODECOV_OBJECTS_FILE"
+          if ! grep -qxF "$PKG/.build/debug/MockPkgPackageTests.xctest" "$SWIFT_CODECOV_OBJECTS_FILE"; then
+            echo "FAIL: objects file missing expected .xctest object"
+            exit 1
+          fi
+          if [ ! -f "$PKG/codecov.txt" ]; then
+            echo "FAIL: codecov.txt not generated in package path"
+            exit 1
+          fi
+          echo "codecov.txt:"
+          cat "$PKG/codecov.txt"
+          if ! grep -q "MOCK-LLVM-COV show" "$PKG/codecov.txt"; then
+            echo "FAIL: codecov.txt not produced by llvm-cov show"
+            exit 1
+          fi
+          if ! grep -qF -- "--instr-profile=$PKG/.build/debug/codecov/default.profdata" "$PKG/codecov.txt"; then
+            echo "FAIL: llvm-cov not called with expected profile"
+            exit 1
+          fi
+          if ! grep -qF -- "--object=$PKG/.build/debug/MockPkgPackageTests.xctest" "$PKG/codecov.txt"; then
+            echo "FAIL: llvm-cov not called with expected object"
+            exit 1
+          fi
+          echo "PASS"
