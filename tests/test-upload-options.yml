@@ -1,0 +1,36 @@
+name: Test upload option parameter passthrough
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          dry_run: 'true'
+          fail_ci_if_error: 'false'
+          codecov_yml_path: 'codecov.yml'
+          disable_file_fixes: 'true'
+          disable_telem: 'true'
+          env_vars: 'OS,PYTHON'
+          flags: 'unittests'
+          name: 'act-test-upload'
+          swift_project: 'MyProject'
+
+      - name: Assert action ran with upload options
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: action succeeded with upload options"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action failed gracefully (Swift toolchain not available in this environment)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

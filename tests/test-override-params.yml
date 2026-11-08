@@ -1,4 +1,4 @@
-name: Test passthrough inputs coverage
+name: Test override and base_sha parameter passthrough
 on:
   workflow_dispatch:
 jobs:
@@ -11,30 +11,24 @@ jobs:
         uses: .
         continue-on-error: true
         with:
-          base_sha: abc1234
-          codecov_yml_path: .codecov.yml
-          disable_file_fixes: 'true'
-          disable_telem: 'true'
-          env_vars: OS,SWIFT_VERSION
-          flags: unittests
-          name: swift-coverage
-          override_branch: main
+          dry_run: 'true'
+          fail_ci_if_error: 'false'
+          base_sha: '0000000000000000000000000000000000000000'
+          override_branch: 'main'
           override_build: '42'
           override_build_url: 'https://example.com/build/42'
-          override_commit: abc1234def5678
+          override_commit: '1111111111111111111111111111111111111111'
           override_pr: '7'
-          swift_project: MyProject
-          dry_run: 'true'
 
-      - name: Assert action ran (Swift not available, graceful failure expected)
+      - name: Assert action ran with override parameters
         env:
           OUTCOME: ${{ steps.action.outcome }}
         run: |
           echo "outcome: $OUTCOME"
           if [ "$OUTCOME" = "success" ]; then
-            echo "PASS: action succeeded"
+            echo "PASS: action succeeded with override parameters"
           elif [ "$OUTCOME" = "failure" ]; then
-            echo "PASS: action failed gracefully (Swift toolchain not available in test environment)"
+            echo "PASS: action failed gracefully (Swift toolchain not available in this environment)"
           else
             echo "FAIL: unexpected outcome '$OUTCOME'"
             exit 1
