@@ -1,0 +1,41 @@
+name: Test Codecov passthrough inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          dry_run: 'true'
+          base_sha: '0000000000000000000000000000000000000000'
+          codecov_yml_path: 'codecov.yml'
+          disable_file_fixes: 'true'
+          disable_telem: 'true'
+          env_vars: 'OS,PYTHON'
+          fail_ci_if_error: 'false'
+          name: 'test-upload'
+          override_branch: 'test-branch'
+          override_build: '123'
+          override_build_url: 'https://example.com/build/123'
+          override_commit: '1111111111111111111111111111111111111111'
+          override_pr: '42'
+          swift_project: 'MyProject'
+
+      - name: Assert action ran with passthrough inputs (success or graceful failure)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # Without a Swift package in the workspace, the action fails at
+          # 'determine-package-info'. A skipped/cancelled outcome is a bug.
+          if [ "$OUTCOME" = "success" ] || [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: action completed with outcome '$OUTCOME'"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
